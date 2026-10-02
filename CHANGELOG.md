@@ -5,6 +5,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-10-03
+
+### No major change
+- just touched.
+
 ## [1.3.1] — 2026-10-02
 
 ### Added
