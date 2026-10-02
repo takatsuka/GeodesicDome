@@ -1,0 +1,71 @@
+# Builds and uploads to PyPI when a GitHub release is published (see RELEASING.md).
+# Uses PyPI trusted publishing: no API token is stored anywhere.
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:          # manual run = rehearsal upload to TestPyPI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check tag matches __version__ and CITATION.cff
+        if: github.event_name == 'release'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(python -c "import re,pathlib;print(re.search(r'__version__\s*=\s*[\x27\x22]([^\x27\x22]+)', pathlib.Path('src/mt/geodesicdome/__init__.py').read_text()).group(1))")
+          CFF=$(grep '^version:' CITATION.cff | awk '{print $2}')
+          echo "tag=$TAG package=$PKG citation=$CFF"
+          test "$TAG" = "$PKG" && test "$TAG" = "$CFF"
+
+      - run: pip install build twine
+      - run: python -m build
+      - run: python -m twine check dist/*
+
+      - name: Test the built wheel in a clean environment
+        run: |
+          python -m venv /tmp/wheeltest
+          /tmp/wheeltest/bin/pip install "$(ls dist/*.whl)[interactive]" pytest   # [interactive] = + matplotlib
+          cd /tmp && /tmp/wheeltest/bin/python -m pytest "$GITHUB_WORKSPACE/tests" -p no:cacheprovider
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  testpypi:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mtgeodesicdome"            # pip install mtgeodesicdome  ->  import mt.geodesicdome
+dynamic = ["version"]
+description = "Geodesic domes (icosahedral, tetrahedral and dodecahedral spherical lattices) with fast neighbour search, flat grids, map projections and an interactive rotatable map viewer -- the lattice layer for spherical self-organising maps."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Masahiro Takatsuka", email = "masa@takatsuka.org" }]
+maintainers = [{ name = "Masahiro Takatsuka", email = "masa@takatsuka.org" }]
+keywords = [
+    "geodesic dome", "geodesic sphere", "icosahedron", "tetrahedron", "dodecahedron", "spherical grid", "icosphere",
+    "self-organizing map", "spherical SOM", "neighbour search", "map projection",
+    "equal earth", "mesh", "gpu", "cuda",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Typing :: Typed",
+]
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+interactive = ["matplotlib>=3.6"]
+gpu = ["torch>=2.1"]                  # GPU: NVIDIA CUDA or Apple Silicon (MPS); for CuPy install cupy-cudaXXx yourself
+examples = ["matplotlib>=3.6", "pillow"]
+notebooks = ["matplotlib>=3.6", "pillow", "jupyterlab", "ipywidgets>=8", "ipympl"]   # examples/notebooks/
+legacy = ["plotly", "dash"]            # old viewers in examples/legacy/
+dev = ["matplotlib>=3.6", "pytest>=7", "pytest-cov", "ruff>=0.16,<0.17", "build", "twine"]
+all = ["matplotlib>=3.6", "pillow", "jupyterlab", "ipywidgets>=8", "ipympl", "plotly", "dash", "pytest>=7", "pytest-cov", "ruff>=0.16,<0.17", "build", "twine"]
+
+[project.urls]
+Homepage = "https://github.com/takatsuka/mtGeodesicDome"
+Source = "https://github.com/takatsuka/mtGeodesicDome"
+Issues = "https://github.com/takatsuka/mtGeodesicDome/issues"
+Documentation = "https://github.com/takatsuka/mtGeodesicDome/blob/main/docs/index.md"
+Changelog = "https://github.com/takatsuka/mtGeodesicDome/blob/main/CHANGELOG.md"
+Paper = "https://doi.org/10.1016/j.neunet.2006.05.021"
+
+# ---------------------------------------------------------------- setuptools
+[tool.setuptools.dynamic]
+version = { attr = "mt.geodesicdome.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mt.*"]
+namespaces = true             # `mt` is a PEP 420 namespace package (no __init__.py)
+
+[tool.setuptools.package-data]
+"mt.geodesicdome" = ["py.typed"]
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+# ---------------------------------------------------------------- ruff (lint + format)
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]

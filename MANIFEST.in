@@ -1,0 +1,8 @@
+# Source distribution (sdist) contents. The wheel contains only src/mt/geodesicdome.
+include README.md CHANGELOG.md CITATION.cff LICENSE NOTICE CONTRIBUTING.md pyproject.toml setup_env.sh
+recursive-include tests *.py
+recursive-include docs *.md
+recursive-include examples *.py *.md
+prune examples/output
+exclude main.py
+global-exclude __pycache__ *.py[cod] .DS_Store

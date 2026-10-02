@@ -1,0 +1,60 @@
+mtGeodesicDome (mtgeodesicdome) -- geodesic domes for Python
+Copyright (C) 2022-2026 Masahiro Takatsuka <masa@takatsuka.org>
+https://github.com/takatsuka/mtGeodesicDome
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more
+details.
+
+You should have received a copy of the GNU Affero General Public License along
+with this program (the file LICENSE).  If not, see <https://www.gnu.org/licenses/>.
+
+In short: anyone may use, study, modify and share this program, but whoever
+distributes it -- or a modified version, or software that includes it -- or
+lets users interact with a modified version over a network, must make the
+complete corresponding source code available under this same licence, and must
+keep the attribution below.
+
+
+Additional terms under section 7 of the GNU Affero General Public License, v3
+-----------------------------------------------------------------------------
+
+As permitted by section 7(b) of the GNU AGPL version 3, the following
+additional term applies to this program and to any work based on it:
+
+  You must preserve the following author attribution, unaltered, in the
+  source code of any copy or modified version of this program that you
+  convey, and in the Appropriate Legal Notices (as defined in the GNU AGPL)
+  displayed by any work that contains or is based on this program:
+
+      This software includes mtGeodesicDome by Masahiro Takatsuka
+      (https://github.com/takatsuka/mtGeodesicDome), which implements the indexed
+      geodesic data structure described in:
+      Y. Wu and M. Takatsuka, "Spherical self-organizing map using efficient
+      indexed geodesic data structure", Neural Networks, 19(6-7):900-910,
+      2006. doi:10.1016/j.neunet.2006.05.021
+
+This NOTICE file must be kept with every copy of the program.
+
+
+Commercial licensing
+--------------------
+
+The copyright holder may also make this program available under other terms
+(for example, a commercial licence permitting use in proprietary software
+without the obligations of the GNU AGPL).  Contact masa@takatsuka.org.
+Contributions are accepted only under the terms in CONTRIBUTING.md, which
+allow such licensing.
+
+
+Citation request
+----------------
+
+If you use this software in research, please cite the publication above and
+the software itself (see CITATION.cff, or "Cite this repository" on GitHub).
