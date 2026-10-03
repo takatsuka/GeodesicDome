@@ -353,7 +353,7 @@ idx = compute.nearest_vertex(mesh.points, queries) # nearest dome vertex of each
 
 A `Backend` offers the few array operations the geodesic libraries need with the same meaning on numpy, cupy and
 torch arrays, plus `block_rows()`/`map_blocks()` to cut work into blocks that fit in memory and run them on all CPU
-cores. mtGeodesicSOM trains on it.
+cores. [GeoSOM](https://github.com/takatsuka/GeoSOM) trains on it.
 
 ---
 
