@@ -32,7 +32,7 @@ They work straight from a checkout: the first cell imports `nb_setup.py` (in thi
 * **Without it** figures are static images; the controls still work and redraw them. Set the environment
   variable `MTG_NOTEBOOK_STATIC=1` to force this.
 
-VS Code and PyCharm open the notebooks too; choose `~/.venvs/mtGeodesicDome/bin/python` as the kernel.
+VS Code and PyCharm open the notebooks too; choose `~/.venvs/GeodesicDome/bin/python` as the kernel.
 
 The notebooks are stored without outputs. Unlike the scripts they do not overwrite the showcase images in
 `examples/output/`; only notebook 07 writes files there (`.obj`, `.off`, `.npz`, which git ignores).

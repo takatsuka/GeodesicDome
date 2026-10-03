@@ -1,6 +1,6 @@
-mtGeodesicDome (mtgeodesicdome) -- geodesic domes for Python
+GeodesicDome (mtgeodesicdome) -- geodesic domes for Python
 Copyright (C) 2022-2026 Masahiro Takatsuka <masa@takatsuka.org>
-https://github.com/takatsuka/mtGeodesicDome
+https://github.com/takatsuka/GeodesicDome
 
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU Affero General Public License as published by the Free
@@ -33,8 +33,8 @@ additional term applies to this program and to any work based on it:
   convey, and in the Appropriate Legal Notices (as defined in the GNU AGPL)
   displayed by any work that contains or is based on this program:
 
-      This software includes mtGeodesicDome by Masahiro Takatsuka
-      (https://github.com/takatsuka/mtGeodesicDome), which implements the indexed
+      This software includes GeodesicDome by Masahiro Takatsuka
+      (https://github.com/takatsuka/GeodesicDome), which implements the indexed
       geodesic data structure described in:
       Y. Wu and M. Takatsuka, "Spherical self-organizing map using efficient
       indexed geodesic data structure", Neural Networks, 19(6-7):900-910,

@@ -1,4 +1,4 @@
-# mtGeodesicDome documentation
+# GeodesicDome documentation
 
 `mt.geodesicdome` builds **geodesic spheres** (domes of any frequency on an icosahedron, tetrahedron or dodecahedron) and
 **flat hexagonal/rectilinear grids**, with fast neighbour search on both. It was written as the
@@ -11,7 +11,7 @@ points evenly on a sphere, or cellular automata on a globe.
 |---|---|
 | `pip install …` | `mtgeodesicdome` |
 | Python import | `mt.geodesicdome` |
-| Source | [github.com/takatsuka/mtGeodesicDome](https://github.com/takatsuka/mtGeodesicDome) |
+| Source | [github.com/takatsuka/GeodesicDome](https://github.com/takatsuka/GeodesicDome) |
 
 **Contents**
 
@@ -381,7 +381,7 @@ Run them from the repository root, e.g. `python examples/04_neighbours.py`.
 
 ## 10. Citing and licence
 
-If you use mtGeodesicDome in research, please cite the paper that introduced the indexed geodesic data
+If you use GeodesicDome in research, please cite the paper that introduced the indexed geodesic data
 structure:
 
 > Y. Wu and M. Takatsuka, "Spherical self-organizing map using efficient indexed geodesic data structure,"
@@ -404,7 +404,7 @@ structure:
 GitHub's *Cite this repository* button (from [`CITATION.cff`](../CITATION.cff)) gives a reference to the
 software itself.
 
-mtGeodesicDome is free software under the **GNU Affero General Public License v3.0 or later**
+GeodesicDome is free software under the **GNU Affero General Public License v3.0 or later**
 ([LICENSE](../LICENSE)), with an additional attribution term ([NOTICE](../NOTICE)). In short:
 
 * **You may** use, study, modify and share it, including commercially.
@@ -415,5 +415,5 @@ mtGeodesicDome is free software under the **GNU Affero General Public License v3
   the legal notices your software displays.
 * There is no warranty.
 
-**Commercial licence.** To use mtGeodesicDome in proprietary software without these obligations, contact
+**Commercial licence.** To use GeodesicDome in proprietary software without these obligations, contact
 <masa@takatsuka.org>.

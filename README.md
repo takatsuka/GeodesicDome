@@ -1,9 +1,9 @@
-# mtGeodesicDome — geodesic domes and grids for Python
+# GeodesicDome — geodesic domes and grids for Python
 
 [![PyPI](https://img.shields.io/pypi/v/mtgeodesicdome.svg)](https://pypi.org/project/mtgeodesicdome/)
 [![Python](https://img.shields.io/pypi/pyversions/mtgeodesicdome.svg)](https://pypi.org/project/mtgeodesicdome/)
-[![tests](https://github.com/takatsuka/mtGeodesicDome/actions/workflows/tests.yml/badge.svg)](https://github.com/takatsuka/mtGeodesicDome/actions/workflows/tests.yml)
-[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](https://github.com/takatsuka/mtGeodesicDome/blob/main/LICENSE)
+[![tests](https://github.com/takatsuka/GeodesicDome/actions/workflows/tests.yml/badge.svg)](https://github.com/takatsuka/GeodesicDome/actions/workflows/tests.yml)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](https://github.com/takatsuka/GeodesicDome/blob/main/LICENSE)
 
 `mt.geodesicdome` builds **geodesic spheres** (domes of any frequency on an icosahedron, tetrahedron or dodecahedron) and
 **flat hexagonal/rectilinear grids**, with fast neighbour search on both. It was written as the
@@ -14,9 +14,9 @@ sampling points evenly on a sphere, or cellular automata on a globe.
 |---|---|
 | `pip install …` | `mtgeodesicdome` |
 | Python import | `mt.geodesicdome` (`mt` is a namespace package shared by future `mt.*` libraries) |
-| Repository | [`takatsuka/mtGeodesicDome`](https://github.com/takatsuka/mtGeodesicDome) |
+| Repository | [`takatsuka/GeodesicDome`](https://github.com/takatsuka/GeodesicDome) |
 
-![geodesic domes of frequency 1, 2, 4 and 8](https://raw.githubusercontent.com/takatsuka/mtGeodesicDome/main/examples/output/02_domes_3d.png)
+![geodesic domes of frequency 1, 2, 4 and 8](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/02_domes_3d.png)
 
 **What you get**
 
@@ -51,7 +51,7 @@ python -c "from mt.geodesicdome.grid.geodesicdome import GeodesicDome; print(Geo
 ```
 
 The examples, the tests and `setup_env.sh` are in the
-[GitHub repository](https://github.com/takatsuka/mtGeodesicDome), not in the pip package.
+[GitHub repository](https://github.com/takatsuka/GeodesicDome), not in the pip package.
 
 ### Working on this repository: `setup_env.sh` (recommended)
 
@@ -60,22 +60,22 @@ plotly and dash for the older viewers, and pytest. It also installs this package
 `.py` file in any folder of the project can `import mt.geodesicdome`.
 
 ```bash
-cd mtGeodesicDome
+cd GeodesicDome
 ./setup_env.sh                          # once
 python examples/01_quickstart.py        # works straight away, in the same terminal
 python examples/09_interactive_projection.py
 ```
 
 * **It leaves you in a ready shell.** When it finishes, it opens a shell in which the environment is active
-  (the prompt starts with `(mtGeodesicDome)`), so `python` is the project's Python. Type `exit` to return to
+  (the prompt starts with `(GeodesicDome)`), so `python` is the project's Python. Type `exit` to return to
   your previous shell. `--no-shell` skips this.
 * **New terminals are ready too.** It adds a small block to `~/.zshrc` (and `~/.bashrc` if you have one) that
   activates the environment whenever you are inside the project and deactivates it when you leave.
   `--no-shell-hook` skips this; `./setup_env.sh --remove-shell-hook` removes it.
-* **The environment lives in `~/.venvs/mtGeodesicDome`, outside the repository.** This repository sits in Google Drive,
+* **The environment lives in `~/.venvs/GeodesicDome`, outside the repository.** This repository sits in Google Drive,
   which syncs every file of a virtual environment and can make them online-only, so imports hang or fail.
-* **Anywhere else**, run `source ~/.venvs/mtGeodesicDome/bin/activate`, or call the environment's Python
-  directly: `~/.venvs/mtGeodesicDome/bin/python path/to/script.py`.
+* **Anywhere else**, run `source ~/.venvs/GeodesicDome/bin/activate`, or call the environment's Python
+  directly: `~/.venvs/GeodesicDome/bin/python path/to/script.py`.
 * **It is safe to re-run at any time.** A healthy environment is reused, and missing packages are added. A broken
   one, for example after `brew upgrade python`, is rebuilt automatically.
 * **It picks the newest Python ≥ 3.10 it can find.** Use `--python /opt/homebrew/bin/python3.13` to choose one.
@@ -86,12 +86,12 @@ python examples/09_interactive_projection.py
   `--torch-index cu126` (or a URL) overrides the PyTorch wheel index.
 * **Other options:** `--recreate` builds from scratch, `--check` only verifies, `--minimal` installs numpy only
   (and no GPU packages), and `--no-legacy` skips plotly and dash. See `./setup_env.sh --help`.
-* **IDE:** in PyCharm or VS Code, choose `~/.venvs/mtGeodesicDome/bin/python` as the project interpreter.
+* **IDE:** in PyCharm or VS Code, choose `~/.venvs/GeodesicDome/bin/python` as the project interpreter.
 
 ### Other ways to install
 
 ```bash
-pip install "git+https://github.com/takatsuka/mtGeodesicDome.git"   # latest development version
+pip install "git+https://github.com/takatsuka/GeodesicDome.git"   # latest development version
 pip install -e ".[interactive]"                            # from a local checkout, editable
 ```
 
@@ -169,7 +169,7 @@ This indexed geodesic data structure was introduced for the spherical self-organ
 }
 ```
 
-![the unfolded net](https://raw.githubusercontent.com/takatsuka/mtGeodesicDome/main/examples/output/03_unfolded_net.png)
+![the unfolded net](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/03_unfolded_net.png)
 
 To fold the net back into a sphere, points on its border are **stored more than once**, and each copy
 lists the others in `vertex.same_vertices`. As a result:
@@ -230,7 +230,7 @@ For these two solids the net has notches, so each vertex also stores a 6-bit `ne
 offsets that are real edges; the search is still pure index arithmetic. The nets themselves are in
 `mt.geodesicdome.grid.polyhedra` (`base_net(name)`).
 
-![domes and nets on the three base polyhedra](https://raw.githubusercontent.com/takatsuka/mtGeodesicDome/main/examples/output/10_base_polyhedra.png)
+![domes and nets on the three base polyhedra](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/10_base_polyhedra.png)
 
 **Explore them interactively.** `examples/11_interactive_base_polyhedra.py` (and the notebook of the same name)
 shows one dome three ways at once: on the sphere, on its index grid and in a map projection centred on a
@@ -239,7 +239,7 @@ that is compact on the sphere split across the seams of the net. Click the net o
 It can also colour every cell by its spherical area; compare the tetrahedron with the other two.
 `ProjectionViewer(dome, colors='base')` colours any dome by the faces of its own base solid.
 
-![the base-polyhedron explorer](https://raw.githubusercontent.com/takatsuka/mtGeodesicDome/main/examples/output/11_explorer.png)
+![the base-polyhedron explorer](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/11_explorer.png)
 
 ---
 
@@ -289,7 +289,7 @@ For a complete map, with no missing triangles and any orientation of the sphere,
 Vectorised helpers on every projection: `latlong_to_2d(lat, lon)` (arrays, radians),
 `xyz_to_2d_many(xyz)` for an `(N, 3)` array, and `outline()`, the map boundary as a polygon.
 
-![map projections](https://raw.githubusercontent.com/takatsuka/mtGeodesicDome/main/examples/output/05_map_projections.png)
+![map projections](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/05_map_projections.png)
 
 ### Interactive projection — `mt.geodesicdome.interactive`
 
@@ -305,7 +305,7 @@ viewer = ProjectionViewer(GeodesicDome(8), 'Equal Earth')
 viewer.show()
 ```
 
-![rotating the sphere inside an Equal Earth projection](https://raw.githubusercontent.com/takatsuka/mtGeodesicDome/main/examples/output/09_rotation.gif)
+![rotating the sphere inside an Equal Earth projection](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/09_rotation.gif)
 
 | Mouse / key | Action |
 |---|---|
@@ -399,7 +399,7 @@ cores. mtGeodesicSOM trains on it.
 Because both classes share the `Manifold` interface, code such as a SOM can switch between a flat
 map, a torus and a sphere without changes.
 
-![plane grids](https://raw.githubusercontent.com/takatsuka/mtGeodesicDome/main/examples/output/08_plane_grids.png)
+![plane grids](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/08_plane_grids.png)
 
 ---
 
@@ -423,12 +423,12 @@ from a checkout without installing, and their images and files go to `examples/o
 | `11_interactive_base_polyhedra.py` | **interactive:** explore any dome type — 3-D sphere, index-grid net and a map centred on a vertex, with its neighbour rings across the seams (click to move; `--base`, `--freq`, `--rings`, `--colouring`, `--save`) |
 | `dome_utils.py` | helpers used above: `unique_mesh`, `neighbour_rings`, `output_path` |
 
-![neighbour rings](https://raw.githubusercontent.com/takatsuka/mtGeodesicDome/main/examples/output/04_neighbours.png)
+![neighbour rings](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/04_neighbours.png)
 
-![spherical SOM](https://raw.githubusercontent.com/takatsuka/mtGeodesicDome/main/examples/output/06_spherical_som.png)
+![spherical SOM](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/06_spherical_som.png)
 
 **Notebooks.** Every example is also a Jupyter notebook in
-[`examples/notebooks/`](https://github.com/takatsuka/mtGeodesicDome/tree/main/examples/notebooks), explained step
+[`examples/notebooks/`](https://github.com/takatsuka/GeodesicDome/tree/main/examples/notebooks), explained step
 by step and ending with sliders and buttons to explore it. With `ipympl` installed the figures are live: 3D plots
 rotate with the mouse and the map viewer can be dragged.
 
@@ -443,13 +443,13 @@ The older interactive viewers in `examples/legacy/` use plotly/dash (`pip instal
 
 ## 6. Changelog
 
-See [CHANGELOG.md](https://github.com/takatsuka/mtGeodesicDome/blob/main/CHANGELOG.md).
+See [CHANGELOG.md](https://github.com/takatsuka/GeodesicDome/blob/main/CHANGELOG.md).
 
 ---
 
 ## 7. Citing
 
-If you use mtGeodesicDome in research, please cite the paper that introduced the data structure (BibTeX in
+If you use GeodesicDome in research, please cite the paper that introduced the data structure (BibTeX in
 [section 3.2](#32-the-unfolded-net-and-seam-vertices)):
 
 > Y. Wu and M. Takatsuka, "Spherical self-organizing map using efficient indexed geodesic data structure,"
@@ -469,9 +469,9 @@ the software itself.
 
 Copyright © 2022–2026 Masahiro Takatsuka.
 
-mtGeodesicDome is free software under the **GNU Affero General Public License v3.0 or later**
-([LICENSE](https://github.com/takatsuka/mtGeodesicDome/blob/main/LICENSE)), with an additional attribution term
-([NOTICE](https://github.com/takatsuka/mtGeodesicDome/blob/main/NOTICE)). In short:
+GeodesicDome is free software under the **GNU Affero General Public License v3.0 or later**
+([LICENSE](https://github.com/takatsuka/GeodesicDome/blob/main/LICENSE)), with an additional attribution term
+([NOTICE](https://github.com/takatsuka/GeodesicDome/blob/main/NOTICE)). In short:
 
 * **You may** use, study, modify and share it, including commercially.
 * **If you distribute it,** or a modified version, or software that includes it, **or let people use a
@@ -481,8 +481,8 @@ mtGeodesicDome is free software under the **GNU Affero General Public License v3
   the legal notices your software displays.
 * There is no warranty.
 
-**Commercial licence.** To use mtGeodesicDome in proprietary software without these obligations, contact
+**Commercial licence.** To use GeodesicDome in proprietary software without these obligations, contact
 <masa@takatsuka.org> about a commercial licence.
 
 **Contributing.** Contributions are welcome under the terms in
-[CONTRIBUTING.md](https://github.com/takatsuka/mtGeodesicDome/blob/main/CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/takatsuka/GeodesicDome/blob/main/CONTRIBUTING.md).

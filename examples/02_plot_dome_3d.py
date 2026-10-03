@@ -37,7 +37,7 @@ for n, f in enumerate(FREQUENCIES, start=1):
     ax.set_axis_off()
     ax.set_title(f'frequency {f}\n{len(points)} vertices, {len(faces)} faces')
 
-fig.suptitle('mtGeodesicDome: GeodesicDome (icosahedron-based)', fontsize=14)
+fig.suptitle('GeodesicDome: GeodesicDome (icosahedron-based)', fontsize=14)
 fig.subplots_adjust(left=0, right=1, bottom=0, top=0.80, wspace=0)
 path = output_path('02_domes_3d.png')
 fig.savefig(path, dpi=130)

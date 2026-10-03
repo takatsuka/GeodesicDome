@@ -71,7 +71,7 @@ for n, base in enumerate(BASES):
     ax.legend(loc='lower right', fontsize=8, frameon=False)
     ax.set_title(f'net: grid {dome.x_max + 1} x {dome.y_max + 1}, {len(vertices)} stored vertices')
 
-fig.suptitle('mtGeodesicDome: the same index grid on three base polyhedra', fontsize=14)
+fig.suptitle('GeodesicDome: the same index grid on three base polyhedra', fontsize=14)
 fig.tight_layout()
 path = output_path('10_base_polyhedra.png')
 fig.savefig(path, dpi=110)

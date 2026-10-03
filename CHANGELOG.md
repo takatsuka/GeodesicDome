@@ -64,7 +64,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - **New home.** Published as `mtgeodesicdome` (import `mt.geodesicdome`) from
-  [`takatsuka/mtGeodesicDome`](https://github.com/takatsuka/mtGeodesicDome).
+  [`takatsuka/GeodesicDome`](https://github.com/takatsuka/GeodesicDome).
 - `src/` layout; tests in `tests/`; the old plotly/dash viewers moved to `examples/legacy/`.
 - GitHub Actions workflows for tests (Linux, macOS, Windows; Python 3.10–3.14) and PyPI publishing.
 - Code tidied to pass `ruff check` (type hints use built-in generics such as `list[int]`, unused
@@ -101,7 +101,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
   environment.
 
 *Packaging*
-* Licensed under **AGPL-3.0-or-later** with an attribution term (see the [README](https://github.com/takatsuka/mtGeodesicDome#8-licence)).
+* Licensed under **AGPL-3.0-or-later** with an attribution term (see the [README](https://github.com/takatsuka/GeodesicDome#8-licence)).
 * Built from `pyproject.toml`, which replaces `setup.py`. Correct requirements: Python ≥ 3.10 and NumPy,
   plus optional extras.
 * Test scripts are no longer shipped in the wheel.

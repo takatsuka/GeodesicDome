@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# setup_env.sh -- create (or repair) the Python environment for mtGeodesicDome (mt.geodesicdome).
+# setup_env.sh -- create (or repair) the Python environment for GeodesicDome (mt.geodesicdome).
 #
 # Run it once and you can immediately type, in the same terminal:
 #
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-PROJECT_NAME="mtGeodesicDome"
+PROJECT_NAME="GeodesicDome"
 MIN_PY_MINOR=10                         # Python >= 3.10 (plane.py uses match/case)
 
 # The environment lives OUTSIDE the repository on purpose: this repo sits in

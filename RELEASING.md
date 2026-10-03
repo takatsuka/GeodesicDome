@@ -1,4 +1,4 @@
-# Releasing mtGeodesicDome
+# Releasing GeodesicDome
 
 Releases are built and uploaded to [PyPI](https://pypi.org/project/mtgeodesicdome/) by GitHub
 Actions (`.github/workflows/publish.yml`) when you publish a GitHub release. PyPI "trusted publishing" is
@@ -6,10 +6,10 @@ used, so no API token or password is stored anywhere.
 
 ## One-time set-up
 
-1. **GitHub environments.** Under Settings → Environments of `takatsuka/mtGeodesicDome`, create `pypi`
+1. **GitHub environments.** Under Settings → Environments of `takatsuka/GeodesicDome`, create `pypi`
    and `testpypi`. For `pypi` you can add yourself as a *required reviewer*, so every upload waits for a click.
 2. **PyPI trusted publisher.** At <https://pypi.org>, go to *Your account → Publishing → Add a new pending
-   publisher → GitHub*: project `mtgeodesicdome`, owner `takatsuka`, repository `mtGeodesicDome`,
+   publisher → GitHub*: project `mtgeodesicdome`, owner `takatsuka`, repository `GeodesicDome`,
    workflow `publish.yml`, environment `pypi`.
 3. **TestPyPI (for rehearsals).** Same at <https://test.pypi.org> (a separate account), environment `testpypi`.
 4. **Zenodo DOI (recommended).** Log in to <https://zenodo.org> with GitHub and switch the repository on.

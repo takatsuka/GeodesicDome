@@ -23,7 +23,7 @@ try:
 except ImportError:
     raise ImportError(
         f'numpy is not installed for the Python running this notebook:\n    {sys.executable}\n'
-        'Run ./setup_env.sh in the repository once, then choose ~/.venvs/mtGeodesicDome/bin/python as the '
+        'Run ./setup_env.sh in the repository once, then choose ~/.venvs/GeodesicDome/bin/python as the '
         'interpreter (PyCharm: Settings > Project > Python Interpreter; VS Code / Jupyter: the kernel picker).'
     ) from None
 

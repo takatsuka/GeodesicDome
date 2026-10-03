@@ -1,7 +1,7 @@
-# Contributing to mtGeodesicDome
+# Contributing to GeodesicDome
 
 Thank you for considering a contribution! Bug reports, questions and pull requests are welcome on
-[GitHub](https://github.com/takatsuka/mtGeodesicDome/issues).
+[GitHub](https://github.com/takatsuka/GeodesicDome/issues).
 
 ## Development set-up
 
@@ -17,7 +17,7 @@ the `SPDX-License-Identifier` and copyright header at the top of every source fi
 
 ## Licence of contributions (please read)
 
-mtGeodesicDome is published under the GNU Affero GPL v3 or later (AGPL-3.0-or-later), with an additional attribution term (see
+GeodesicDome is published under the GNU Affero GPL v3 or later (AGPL-3.0-or-later), with an additional attribution term (see
 `LICENSE` and `NOTICE`). The copyright holder, Masahiro Takatsuka, also offers the software under other
 licences, including commercial ones. To keep that possible, contributions are accepted only on the
 following terms.
@@ -32,7 +32,7 @@ By submitting a contribution (a pull request, patch, or other material) you conf
    non-exclusive, royalty-free, irrevocable licence, including under any patent claims you can license that
    the contribution necessarily infringes. It covers using, reproducing, modifying, distributing and
    sublicensing the contribution, and licensing it under any other terms, including proprietary or
-   commercial ones, alone or as part of mtGeodesicDome or any other work.
+   commercial ones, alone or as part of GeodesicDome or any other work.
 4. **You are not owed any payment or support,** and the contribution is provided "as is", without
    warranty.
 

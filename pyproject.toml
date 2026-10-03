@@ -46,11 +46,11 @@ dev = ["matplotlib>=3.6", "pytest>=7", "pytest-cov", "ruff>=0.16,<0.17", "build"
 all = ["matplotlib>=3.6", "pillow", "jupyterlab", "ipywidgets>=8", "ipympl", "plotly", "dash", "pytest>=7", "pytest-cov", "ruff>=0.16,<0.17", "build", "twine"]
 
 [project.urls]
-Homepage = "https://github.com/takatsuka/mtGeodesicDome"
-Source = "https://github.com/takatsuka/mtGeodesicDome"
-Issues = "https://github.com/takatsuka/mtGeodesicDome/issues"
-Documentation = "https://github.com/takatsuka/mtGeodesicDome/blob/main/docs/index.md"
-Changelog = "https://github.com/takatsuka/mtGeodesicDome/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/takatsuka/GeodesicDome"
+Source = "https://github.com/takatsuka/GeodesicDome"
+Issues = "https://github.com/takatsuka/GeodesicDome/issues"
+Documentation = "https://github.com/takatsuka/GeodesicDome/blob/main/docs/index.md"
+Changelog = "https://github.com/takatsuka/GeodesicDome/blob/main/CHANGELOG.md"
 Paper = "https://doi.org/10.1016/j.neunet.2006.05.021"
 
 # ---------------------------------------------------------------- setuptools
