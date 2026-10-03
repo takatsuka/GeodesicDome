@@ -3,7 +3,7 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mtgeodesicdome"            # pip install mtgeodesicdome  ->  import mt.geodesicdome
+name = "geodesicdomes"            # pip install geodesicdome  ->  import mt.geodesicdome
 dynamic = ["version"]
 description = "Geodesic domes (icosahedral, tetrahedral and dodecahedral spherical lattices) with fast neighbour search, flat grids, map projections and an interactive rotatable map viewer -- the lattice layer for spherical self-organising maps."
 readme = "README.md"
