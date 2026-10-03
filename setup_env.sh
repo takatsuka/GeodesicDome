@@ -588,7 +588,7 @@ try:
         except Exception as exc:                   # noqa: BLE001
             problems.append(f'cupy on the NVIDIA GPU: {exc}')
 except ImportError:
-    print('      compute     this mtgeodesicdome has no GPU backend (needs mtgeodesicdome >= 1.3.0)')
+    print('      compute     this geodesicdomes has no GPU backend (needs geodesicdomes >= 1.3.0)')
 
 if problems:
     print('\nPROBLEMS:')

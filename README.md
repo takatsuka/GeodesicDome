@@ -1,7 +1,7 @@
 # GeodesicDome — geodesic domes and grids for Python
 
-[![PyPI](https://img.shields.io/pypi/v/mtgeodesicdome.svg)](https://pypi.org/project/mtgeodesicdome/)
-[![Python](https://img.shields.io/pypi/pyversions/mtgeodesicdome.svg)](https://pypi.org/project/mtgeodesicdome/)
+[![PyPI](https://img.shields.io/pypi/v/geodesicdomes.svg)](https://pypi.org/project/geodesicdomes/)
+[![Python](https://img.shields.io/pypi/pyversions/geodesicdomes.svg)](https://pypi.org/project/geodesicdomes/)
 [![tests](https://github.com/takatsuka/GeodesicDome/actions/workflows/tests.yml/badge.svg)](https://github.com/takatsuka/GeodesicDome/actions/workflows/tests.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](https://github.com/takatsuka/GeodesicDome/blob/main/LICENSE)
 
@@ -12,7 +12,7 @@ sampling points evenly on a sphere, or cellular automata on a globe.
 
 | What | Name |
 |---|---|
-| `pip install …` | `mtgeodesicdome` |
+| `pip install …` | `geodesicdomes` |
 | Python import | `mt.geodesicdome` (`mt` is a namespace package shared by future `mt.*` libraries) |
 | Repository | [`takatsuka/GeodesicDome`](https://github.com/takatsuka/GeodesicDome) |
 
@@ -38,9 +38,9 @@ sampling points evenly on a sphere, or cellular automata on a globe.
 Requires Python ≥ 3.10 and NumPy. The interactive viewer and the examples also need matplotlib.
 
 ```bash
-pip install mtgeodesicdome                  # the library (numpy only)
-pip install "mtgeodesicdome[interactive]"   # + matplotlib, for mt.geodesicdome.interactive
-pip install "mtgeodesicdome[gpu]"           # + torch, to use an NVIDIA (CUDA) or Apple Silicon (MPS) GPU
+pip install geodesicdomes                  # the library (numpy only)
+pip install "geodesicdomes[interactive]"   # + matplotlib, for mt.geodesicdome.interactive
+pip install "geodesicdomes[gpu]"           # + torch, to use an NVIDIA (CUDA) or Apple Silicon (MPS) GPU
 ```
 
 Check that it works:
@@ -362,7 +362,7 @@ its own, for example to draw a rotated map in your own figure.
 ### Compute backends: GPU or all CPU cores — `mt.geodesicdome.backend`, `mt.geodesicdome.compute`
 
 Heavy array work runs on a GPU when one is available and otherwise on every CPU core. Nothing extra is required:
-with numpy alone you get the multi-threaded CPU backend; install torch (`pip install "mtgeodesicdome[gpu]"`) for an
+with numpy alone you get the multi-threaded CPU backend; install torch (`pip install "geodesicdomes[gpu]"`) for an
 NVIDIA GPU (CUDA) or the Apple Silicon GPU (MPS), or CuPy for CUDA.
 
 ```python
