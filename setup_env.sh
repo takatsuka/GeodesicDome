@@ -31,10 +31,9 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_NAME="GeodesicDome"
 MIN_PY_MINOR=10                         # Python >= 3.10 (plane.py uses match/case)
 
-# The environment lives OUTSIDE the repository on purpose: this repo sits in
-# Google Drive, which syncs every file of a virtual environment and may turn
-# them into online-only placeholders, making imports hang or fail.
-VENV_DIR="${MTGEODESICDOME_VENV:-$HOME/.venvs/$PROJECT_NAME}"
+# Use a project-local environment by default. Set MTGEODESICDOME_VENV or pass
+# --venv to keep it outside the repository (recommended for cloud-synced folders).
+VENV_DIR="${MTGEODESICDOME_VENV:-$REPO_DIR/.venv}"
 PYTHON_BIN=""
 EXTRAS="all"
 RECREATE=0
@@ -62,8 +61,8 @@ package in editable mode with its dependencies.
 Options:
   --python PATH       Python to build the environment with (must be >= 3.${MIN_PY_MINOR}).
                       Default: the newest python3.x >= 3.${MIN_PY_MINOR} found.
-  --venv PATH         Environment directory (default: ~/.venvs/${PROJECT_NAME},
-                      or \$MTGEODESICDOME_VENV if set).  Keep it outside Google Drive.
+  --venv PATH         Environment directory (default: ${REPO_DIR}/.venv,
+                      or \$MTGEODESICDOME_VENV if set).
   --minimal           Install only numpy (the core library).
   --no-legacy         Skip plotly and dash (only needed by the older viewers in
                       examples/legacy/).
