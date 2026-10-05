@@ -37,6 +37,11 @@ VENV_DIR="${MTGEODESICDOME_VENV:-$REPO_DIR/.venv}"
 PYTHON_BIN=""
 EXTRAS="all"
 RECREATE=0
+# Editable installs use setuptools' "compat" mode: it puts each checkout's src/ folder on the
+# path with a plain .pth file.  The default mode uses an import hook instead, which Python
+# follows but PyCharm / VS Code cannot, so the editor reports e.g.
+# "Cannot find reference 'geodesicdome' in 'mt'" even though the code runs.
+EDITABLE_OPTS="--config-settings editable_mode=compat"
 CHECK_ONLY=0
 SHELL_HOOK=1                            # auto-activate in new terminals (--no-shell-hook to skip)
 START_SHELL=1                           # open an activated shell at the end (--no-shell to skip)
@@ -490,9 +495,9 @@ if [[ "$CHECK_ONLY" -eq 0 ]]; then
 
   say "[3/5] Installing ${PROJECT_NAME} (editable) and its dependencies"
   if [[ -n "$EXTRAS" ]]; then
-    "$VENV_PY" -m pip install --quiet -e "${REPO_DIR}[${EXTRAS}]"
+    "$VENV_PY" -m pip install --quiet $EDITABLE_OPTS -e "${REPO_DIR}[${EXTRAS}]"
   else
-    "$VENV_PY" -m pip install --quiet -e "${REPO_DIR}"
+    "$VENV_PY" -m pip install --quiet $EDITABLE_OPTS -e "${REPO_DIR}"
   fi
   # ---------------------------------------------- 3. GPU packages
   say "[4/5] GPU packages (--gpu $GPU_MODE)"
