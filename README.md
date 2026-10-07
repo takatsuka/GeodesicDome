@@ -25,11 +25,31 @@ sampling points evenly on a sphere, or cellular automata on a globe.
 | Geodesic dome of any frequency *f*: 10f²+2 points, 20f² triangles, all on the unit sphere | `mt.geodesicdome.grid.geodesicdome.GeodesicDome` |
 | Other base solids: tetrahedron (4HSOM array, 2f²+2 points) and dodecahedron (30f²+2 points) | `GeodesicDome(f, base='tetrahedron' / 'dodecahedron')` |
 | Neighbour search and *k*-ring neighbourhoods that continue across the seams of the net | `get_neighbours`, `get_neighbours_in_distance` |
+| Fast index-based search with no vertex objects or visited flags | `within_hops`, `neighbour_ids`, `within_arc` |
 | NumPy export of points and triangles (outward-facing winding) | `get_all_xyz`, `get_all_triangles` |
 | A data payload per vertex, e.g. SOM weight vectors | `vertex.set_data(...)` / `vertex.data` |
 | Four map projections to flatten the sphere | `mt.geodesicdome.projection` |
 | **Interactive map: drag with the mouse to rotate the sphere inside the projection** | `mt.geodesicdome.interactive.ProjectionViewer` |
 | Flat hexagonal or rectilinear grids, with borders or as a torus | `mt.geodesicdome.grid.plane.Plane` |
+
+**Performance**
+
+Domes are stored as NumPy arrays and built with vectorised code; vertex objects are created only when
+you ask for them. A frequency-32 icosahedral dome (10,242 points) builds in about 3 ms:
+
+| Icosahedron, f = 32 | 1.3.x | 1.4.0, arrays only | 1.4.0, all vertex objects |
+|---|---|---|---|
+| Build | 170 ms | **3.1 ms** | 7.9 ms |
+| Memory after build | 7.4 MiB | **1.2 MiB** | 3.3 MiB |
+| 6-hop neighbourhood | 57 µs | **12 µs** (`within_hops`) | 17 µs (`get_neighbours_in_distance`) |
+| Whole-sphere search (96 hops) | 8.1 ms | **1.2 ms** | 1.6 ms |
+
+![Build time by frequency](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/docs/images/build-time-by-frequency.png)
+
+The domes themselves are unchanged: coordinates, ordering, faces, seams and neighbour rings are
+bit-for-bit the same as before. Details, the tetrahedral and dodecahedral domes, and the scripts to
+reproduce these numbers: [docs/performance.md](https://github.com/takatsuka/GeodesicDome/blob/main/docs/performance.md) and
+[benchmarks/](https://github.com/takatsuka/GeodesicDome/blob/main/benchmarks/README.md).
 
 ---
 
@@ -185,7 +205,7 @@ lists the others in `vertex.same_vertices`. As a result:
 
 The neighbour searches mark vertices with `vertex.visited = True` so they are not returned twice.
 **Call `dome.unmark_vertices()` before every new query**. Otherwise vertices from the previous
-query will be missing from the result.
+query will be missing from the result. `within_hops` / `neighbour_ids` use no flags and need no reset.
 
 ### 3.4 Coordinates
 
@@ -261,6 +281,10 @@ It can also colour every cell by its spherical area; compare the tetrahedron wit
 | `get_neighbours(v, False)` | immediate neighbours of `v` |
 | `get_neighbours_in_distance(v, d)` | list of `d` rings: `[[ring 1], [ring 2], ...]` |
 | `unmark_vertices()` | reset every `visited` flag (do this before each search) |
+| `within_hops(i, hops)` | storage indices within `hops` grid steps of position `i` (`i` = `vertex.id`); no vertex objects, no `visited` flags |
+| `neighbour_ids(i)` | storage indices of the direct neighbours of position `i`, across seams |
+| `within_arc(i, angle)` | storage indices within a great-circle `angle` (radians) of position `i` |
+| `n_points`, `point_index` | number of distinct sphere points; the point stored at each position (seam copies share one) |
 
 ### `GeodesicVertex`
 
