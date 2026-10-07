@@ -1,8 +1,32 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2022-2026 Masahiro Takatsuka. See the NOTICE file for attribution terms.
+"""
+Geodesic domes on the integer index grid of Wu & Takatsuka (2006).
+
+Storage is array-first.  A dome keeps
+
+    _coords   (N, 3)  float64  unit vector of every stored grid position (seam copies included)
+    _xy       (N, 2)  int32    grid position (x, y) of every stored position
+    _index    (X+1, Y+1) int32 storage row at every grid cell, -1 where nothing is stored
+    _cand     (N, 6)  int32    storage row of the six grid neighbours, in _DIRECTIONS order, -1 if absent
+    _faces    (F, 3)  int32    triangles as storage rows
+    _cls      (N,)    int32    which unique sphere point each stored position is (seam copies share one)
+
+and builds everything with vectorised NumPy.  The storage row of a position is its index in
+``get_all_vertices()`` / ``get_all_xyz()`` (columns x = 0, 1, ... and y ascending in a column),
+exactly as before.
+
+The :class:`GeodesicVertex` objects that the original API hands out are created lazily, the
+first time something asks for them (``vertices``, ``get_all_vertices``, ``get_vertex_at``,
+``get_neighbours`` ...).  Code that only needs arrays (``get_all_xyz``, ``get_all_triangles``,
+``mt.geodesicdome.compute.DomeArrays``, :meth:`GeodesicDome.within_hops`) never creates them.
+"""
+from __future__ import annotations
+
+from math import cos, pi
+from operator import index as _as_index
 
 import numpy as np
-from numpy import array
 
 from mt.geodesicdome import util
 from mt.geodesicdome.manifold import Manifold
@@ -10,98 +34,80 @@ from mt.geodesicdome.vertex import Vertex
 
 from .polyhedra import BASES, BaseNet, base_net, normalise_base
 
+# grid offsets of the six neighbours, in the order get_neighbours visits them
+_DIRECTIONS = ((0, 1), (0, -1), (1, 0), (1, 1), (-1, -1), (-1, 0))
+_DX = np.array([d[0] for d in _DIRECTIONS], dtype=np.int64)
+_DY = np.array([d[1] for d in _DIRECTIONS], dtype=np.int64)
+
 
 class IGeodesicDome:
     pass
 
 
+def _normalise_rows(p: np.ndarray) -> np.ndarray:
+    """p / |p| along the last axis.  The squared norm goes through matmul, i.e. the same dot
+    kernel that ``np.linalg.norm`` uses on a single vector, so results match the per-vertex
+    code of earlier versions bit for bit."""
+    sq = np.matmul(p[..., None, :], p[..., :, None])[..., 0, 0]
+    return p / np.sqrt(sq)[..., None]
+
+
+def _partition(a: np.ndarray, b: np.ndarray, n: int, steps: np.ndarray) -> np.ndarray:
+    """Points a + j (b - a) / n (j in `steps`) pushed onto the sphere: (E, 3) x (E, 3) -> (E, J, 3)."""
+    d = (b - a) / n
+    return _normalise_rows(a[:, None, :] + steps[None, :, None] * d[:, None, :])
+
+
 class GeodesicVertex(Vertex):
+    """
+    A stored position of a geodesic dome.  ``x``, ``y`` are its index-grid position, ``coord``
+    its unit vector (a view of the dome's coordinate array, so writes go to the dome),
+    ``same_vertices`` the other stored copies of the same sphere point (``None`` off the seams).
+    """
+
+    __slots__ = ('_coord', '_latlon', '_dome', '_i', 'same_vertices', 'frequency', 'projected_coord',
+                 'neighbour_mask')
+
     def __init__(self, latitude=None, longitude=None, coord=None, x=None, y=None, frequency=1):
+        self._i = -1
+        self._dome = None
+        self._coord = None
+        self._latlon = None
         super().__init__(x, y)
-        self.vertices: list[list[GeodesicVertex]] = [[]]
-        self.same_vertices: list[GeodesicVertex] = None
-        self.triangles: list[GeodesicVertex] = []
+        self.same_vertices: list[GeodesicVertex] | None = None
         self.frequency = frequency
-        self.coord: array
-        self.projected_coord: array
-        self.latlon_coord: array
         if (latitude is not None) and (longitude is not None):
-            self.coord = util.spherical_to_xyz(latitude, longitude)
-            self.latlon_coord = np.array([latitude, longitude])
-        elif coord.any():
-            self.coord = coord
-            self.latlon_coord = util.xyz_to_spherical(coord)
+            self._coord = util.spherical_to_xyz(latitude, longitude)
+            self._latlon = np.array([latitude, longitude])
+        elif coord is not None:
+            self._coord = np.asarray(coord, dtype=float)
 
+    @property
+    def coord(self) -> np.ndarray:
+        c = self._coord
+        if c is None and self._dome is not None:
+            c = self._coord = self._dome._coords[self._i]      # row view, created on first use
+        return c
 
-def _mark_same_vertices(v: GeodesicVertex, visit_or_not: bool) -> None:
-    """
-    This function sets the same visited status to all 'same' vertices.
+    @coord.setter
+    def coord(self, value) -> None:
+        if self._dome is not None:
+            self.coord[...] = value                   # write through to the dome's array
+        else:
+            self._coord = np.asarray(value, dtype=float)
+        self._latlon = None
 
-    :type v: GeodesicVertex
-    :param v: The vertex whose registered same vertices will have the specified visited status.
-    :type visit_or_not: bool
-    :param visit_or_not: the new visited or not status.
-    :return: None
-    """
-    if v.same_vertices is not None and v.same_vertices:
-        for vSame in v.same_vertices:
-            vSame.visited = visit_or_not
+    @property
+    def latlon_coord(self) -> np.ndarray:
+        """(colatitude from +y, longitude) in radians; computed on first use."""
+        ll = self._latlon
+        if ll is None:
+            ll = self._latlon = util.xyz_to_spherical(self.coord)
+        return ll
 
-
-def _partition(frequency: int, v1: GeodesicVertex, v2: GeodesicVertex) -> list[GeodesicVertex]:
-    """
-    This function will generate (frequency - 1) new vertices between v1 and v2 so that
-    the edge (v1, v2) are equally divided.
-
-    :param frequency: The frequency of the Geodesicdome.
-           For example, frequency 2 will divide an edge into two edges by inserting one vertex.
-    :param v1: One of two vertices defining an edge.
-    :param v2: One of two vertices defining an edge.
-    :return: A list of newly created (incerted) vertices.
-    """
-    dx = (v2.coord[0] - v1.coord[0]) / frequency
-    dy = (v2.coord[1] - v1.coord[1]) / frequency
-    dz = (v2.coord[2] - v1.coord[2]) / frequency
-    new_vertices: list[GeodesicVertex] = [None] * (frequency - 1)  # GeodesicVertex[frequency - 1];
-    dxIndex = int((v2.x - v1.x) / frequency)
-    dyIndex = int((v2.y - v1.y) / frequency)
-    # print(f'(dxIndex, dyIndex): {dxIndex}, {dyIndex}')
-    for j in range(1, frequency):
-        new_coord = np.array([v1.coord[0] + j * dx, v1.coord[1] + j * dy, v1.coord[2] + j * dz])
-        new_coord = new_coord / np.linalg.norm(new_coord)
-        x = v1.x + dxIndex * j
-        y = v1.y + dyIndex * j
-        # print(f'(x, y): {x}, {y}')
-        new_vertices[j - 1] = GeodesicVertex(coord=new_coord, x=x, y=y, frequency=frequency)
-
-    return new_vertices
-
-
-def _split_x_vertices(vertices_x: list[GeodesicVertex], frequency: int) -> list[GeodesicVertex]:
-    # new vector containing the new higher frequency vertex
-    vNum = len(vertices_x) + (frequency - 1) * (len(vertices_x) - 1)
-    new_vertices_x: list[GeodesicVertex] = [None] * vNum
-    v1: GeodesicVertex = vertices_x[0]
-
-    # these will shift x and y coordinates to make room for new vertices.
-    v1.x *= frequency
-    v1.y *= frequency
-    offset = v1.y
-
-    for j in range(1, len(vertices_x)):
-        # create the higher frequency vertex
-        v2: GeodesicVertex = vertices_x[j]
-        v2.x *= frequency
-        v2.y *= frequency
-
-        created: list[GeodesicVertex] = _partition(frequency, v1, v2)
-        new_vertices_x[v1.y - offset] = v1
-        for k in range(len(created)):
-            new_vertices_x[v1.y + k + 1 - offset] = created[k]
-        new_vertices_x[v1.y + frequency - offset] = v2
-        v1 = v2
-
-    return new_vertices_x
+    @latlon_coord.setter
+    def latlon_coord(self, value) -> None:
+        self._latlon = value
 
 
 class GeodesicDome(IGeodesicDome, Manifold):
@@ -121,6 +127,14 @@ class GeodesicDome(IGeodesicDome, Manifold):
     the offsets (+-1, 0), (0, +-1), (+1, +1), (-1, -1), seam copies in
     ``vertex.same_vertices``, ``get_vertex_at``, ``get_neighbours``,
     ``get_neighbours_in_distance``, ``get_faces``, ``split``.
+
+    Array API (no vertex objects are created):
+
+        dome.get_all_xyz()                 (N, 3) coordinates, row = storage index = vertex.id
+        dome.get_all_triangles()           (3F,) storage indices of the faces
+        dome.neighbour_ids(i)              storage indices of the neighbours of position i
+        dome.within_hops(i, hops)          positions within `hops` grid steps (one per sphere point)
+        dome.within_arc(i, angle)          positions within a great-circle angle (radians)
     """
 
     base: str = 'icosahedron'
@@ -134,29 +148,330 @@ class GeodesicDome(IGeodesicDome, Manifold):
         if base is not None and normalise_base(base) != self.base:
             raise ValueError(f'{type(self).__name__} is built on the {self.base}, not on {base!r}')
 
+    @staticmethod
+    def _check_factor(frequency) -> int:
+        f = _as_index(frequency) if not isinstance(frequency, float) else int(frequency)
+        if f < 1 or f != frequency:
+            raise ValueError('frequency must be a positive integer')
+        return f
+
+    # ------------------------------------------------------------------ array state
+    def _set_arrays(self, xy: np.ndarray, index: np.ndarray, coords: np.ndarray, faces: np.ndarray,
+                    cand: np.ndarray, same: dict[int, list[int]], cls: np.ndarray) -> None:
+        self._xy = xy
+        self._index = index
+        self._coords = coords
+        self._faces = faces
+        self._cand = cand
+        self._same = same
+        self._cls = cls
+        self._n_points = int(cls.max()) + 1 if len(cls) else 0
+        old = getattr(self, '_flat', None)
+        if old is not None:              # rebuilt by split(): old vertices keep their old coordinates
+            for v in old:
+                v.coord             # noqa: B018  (materialise the view of the old array)
+                v._dome = None
+        # lazily built
+        self._flat = None
+        self._columns = None
+        self._ring = None
+        self._bfs = None
+        self.triangles = []
+
+    @staticmethod
+    def _neighbour_candidates(xy: np.ndarray, index: np.ndarray) -> np.ndarray:
+        """(N, 6) storage index of the six grid neighbours of every position (-1 if none stored)."""
+        nx = xy[:, :1] + _DX[None, :]
+        ny = xy[:, 1:] + _DY[None, :]
+        inside = (nx >= 0) & (ny >= 0) & (nx < index.shape[0]) & (ny < index.shape[1])
+        cand = index[np.where(inside, nx, 0), np.where(inside, ny, 0)]
+        cand[~inside] = -1
+        return cand.astype(np.int32, copy=False)
+
+    # ------------------------------------------------------------------ vertex objects (lazy)
+    def _objects(self) -> list[GeodesicVertex]:
+        flat = self._flat
+        if flat is None:
+            flat = self._materialise()
+        return flat
+
+    def _materialise(self) -> list[GeodesicVertex]:
+        n = len(self._coords)
+        xs = self._xy[:, 0].tolist()
+        ys = self._xy[:, 1].tolist()
+        f = self.frequency
+        new, gv = object.__new__, GeodesicVertex
+        flat = [None] * n
+        for i in range(n):
+            v = new(gv)
+            v.visited = False
+            v.x = xs[i]
+            v.y = ys[i]
+            v.id = i
+            v._i = i
+            v._coord = None                             # view of _coords[i], made on first use
+            v._latlon = None
+            v._dome = self
+            v.same_vertices = None
+            v.frequency = f
+            v.data = None
+            v.color = None
+            v.manifold = self
+            flat[i] = v
+        for i, others in self._same.items():
+            flat[i].same_vertices = [flat[j] for j in others]
+        self._flat = flat
+        self._after_materialise(flat)
+        return flat
+
+    def _after_materialise(self, flat) -> None:
+        pass
+
+    @property
+    def vertices(self) -> list[list[GeodesicVertex]]:
+        """The stored vertices column by column: ``vertices[x]`` is column x, y ascending."""
+        cols = self._columns
+        if cols is None:
+            flat = self._objects()
+            bounds = np.searchsorted(self._xy[:, 0], np.arange(self.x_max + 2)).tolist()
+            cols = self._columns = [flat[bounds[x]:bounds[x + 1]] for x in range(self.x_max + 1)]
+        return cols
+
     def get_all_vertices(self) -> list[GeodesicVertex]:
-        all_vertices: list[GeodesicVertex] = []
-        for row in self.vertices:
-            all_vertices.extend(row)
-        return all_vertices
+        return list(self._objects())
 
     def get_number_of_vertices_per_face(self) -> int:
         return 3
 
-    def get_faces(self) -> list[GeodesicVertex]:
-        self._build_faces()
-        return self.triangles
+    def get_vertex_at(self, x, y) -> GeodesicVertex | None:
+        if 0 <= x <= self.x_max and 0 <= y <= self.y_max:
+            i = int(self._index[x, y])
+            if i >= 0:
+                return self._objects()[i]
+        return None
 
     def _updateIDs(self) -> None:
-        serial_number = 0
-        for v in self.get_all_vertices():
-            v.id = serial_number
-            serial_number += 1
+        if self._flat is not None:
+            for i, v in enumerate(self._flat):
+                v.id = i
 
-    def _unmark_vertices(self) -> None:
-        for x_list in self.vertices:
-            for v in x_list:
+    def _build_faces(self) -> list[GeodesicVertex]:
+        self._updateIDs()
+        flat = self._objects()
+        self.triangles = [flat[i] for i in self._faces.ravel().tolist()]
+        return self.triangles
+
+    def get_faces(self) -> list[GeodesicVertex]:
+        return self._build_faces()
+
+    def get_all_xyz(self) -> np.ndarray:
+        return self._coords.copy()
+
+    def get_all_triangles(self) -> np.ndarray:
+        self._updateIDs()
+        return self._faces.ravel().astype(np.int64)
+
+    def unmark_vertices(self) -> None:
+        flat = self._flat
+        if flat is not None:
+            for v in flat:
                 v.visited = False
+
+    _unmark_vertices = unmark_vertices
+
+    # ------------------------------------------------------------------ neighbour search on vertices
+    def _neighbour_table(self) -> list[list[GeodesicVertex]]:
+        """For every position, its stored grid neighbours as vertex objects, in _DIRECTIONS order."""
+        flat = self._objects()
+        cand = self._cand
+        objs = np.empty(len(flat) + 1, dtype=object)
+        objs[:-1] = flat
+        missing = cand < 0
+        order = np.argsort(missing, axis=1, kind='stable')         # present ones first, in order
+        table = objs[np.take_along_axis(cand, order, axis=1)].tolist()
+        counts = 6 - missing.sum(axis=1)
+        for i in np.flatnonzero(counts < 6).tolist():
+            del table[i][counts[i]:]
+        table = list(map(tuple, table))
+        self._ring = table
+        return table
+
+    def _row_of(self, v: GeodesicVertex) -> int:
+        if getattr(v, '_dome', None) is self:
+            return v._i
+        i = self._index[v.x, v.y] if (0 <= v.x <= self.x_max and 0 <= v.y <= self.y_max) else -1
+        if i < 0:
+            raise ValueError(f'no vertex of this dome at grid position ({v.x}, {v.y})')
+        return int(i)
+
+    def _expand(self, frontier, table) -> list[GeodesicVertex]:
+        """Unvisited neighbours (seam copies included) of every vertex in `frontier`, marking
+        them -- exactly what calling get_neighbours(u, False) on each u in turn returns."""
+        out = []
+        add = out.append
+        for u in frontier:
+            for n in table[u._i]:
+                if not n.visited:
+                    n.visited = True
+                    add(n)
+                    s = n.same_vertices
+                    if s:
+                        for t in s:
+                            t.visited = True
+            same = u.same_vertices
+            if same:
+                for s in same:
+                    for n in table[s._i]:
+                        if not n.visited:
+                            n.visited = True
+                            add(n)
+                            t2 = n.same_vertices
+                            if t2:
+                                for t in t2:
+                                    t.visited = True
+        return out
+
+    def _start(self, v: GeodesicVertex) -> GeodesicVertex:
+        i = self._row_of(v)
+        u = self._objects()[i]
+        v.visited = True
+        u.visited = True
+        if u.same_vertices:
+            for s in u.same_vertices:
+                s.visited = True
+        return u
+
+    def get_neighbours(self, v: GeodesicVertex, visit_same_vertex: bool = False) -> list[GeodesicVertex]:
+        """
+        The not-yet-visited direct neighbours of `v` (and, unless `visit_same_vertex`, of its
+        seam copies), marking them and their copies as visited.  Call ``unmark_vertices()``
+        before a fresh search.
+        """
+        table = self._ring if self._ring is not None else self._neighbour_table()
+        u = self._start(v)
+        if visit_same_vertex or not u.same_vertices:
+            out = []
+            for n in table[u._i]:
+                if not n.visited:
+                    n.visited = True
+                    out.append(n)
+                    s = n.same_vertices
+                    if s:
+                        for t in s:
+                            t.visited = True
+            return out
+        return self._expand((u,), table)
+
+    def get_neighbours_in_distance(self, v: GeodesicVertex, dis: int) -> list[list[GeodesicVertex]]:
+        """Rings 1..dis around `v`: ``result[k]`` holds the vertices k + 1 grid steps away."""
+        table = self._ring if self._ring is not None else self._neighbour_table()
+        ring = self._expand((self._start(v),), table)
+        rings = [ring]
+        for _ in range(dis - 1):
+            ring = self._expand(ring, table)
+            rings.append(ring)
+        return rings
+
+    # ------------------------------------------------------------------ array (index) queries
+    def _check_row(self, i) -> int:
+        i = _as_index(i)
+        if not 0 <= i < len(self._coords):
+            raise IndexError('grid position index out of range')
+        return i
+
+    def _bfs_state(self):
+        """
+        The graph of distinct sphere points, each represented by its first stored position:
+        adj[p] is a tuple of representative positions for every representative p (None for
+        other seam copies), rep_of[p] the representative of position p, marks a visit stamp
+        per position.  Int objects are shared, so this costs about one tuple per point.
+        """
+        bfs = self._bfs
+        if bfs is None:
+            cand, cls = self._cand, self._cls
+            n = len(cls)
+            rep = np.full(self._n_points, n, dtype=np.int64)
+            np.minimum.at(rep, cls, np.arange(n))
+            rep_of = rep[cls]
+            ok = cand.ravel() >= 0
+            src = np.repeat(rep_of, 6)
+            dst = rep_of[np.where(ok, cand.ravel(), 0)]
+            ok &= src != dst
+            key = np.unique(src[ok] * n + dst[ok])
+            s, d = key // n, key % n
+            owners, starts, counts = np.unique(s, return_index=True, return_counts=True)
+            width = int(counts.max()) if len(counts) else 0
+            padded = np.zeros((len(owners), width), dtype=np.int64)
+            row = np.repeat(np.arange(len(owners)), counts)
+            padded[row, np.arange(len(s)) - starts[row]] = d
+            pool = np.arange(n).astype(object)               # one int object per position, shared
+            rows = pool[padded].tolist()
+            for r in np.flatnonzero(counts < width).tolist():
+                del rows[r][counts[r]:]
+            adj = [None] * n
+            for p, r in zip(owners.tolist(), rows, strict=True):
+                adj[p] = tuple(r)
+            bfs = self._bfs = [adj, pool[rep_of].tolist(), [0] * n, 0]
+        return bfs
+
+    def neighbour_ids(self, i: int) -> list[int]:
+        """Storage indices of the direct neighbours of position `i` (one per sphere point, seams included)."""
+        return self.within_hops(i, 1, include_self=False)
+
+    def within_hops(self, i: int, hops: int, include_self: bool = True) -> list[int]:
+        """
+        Storage indices of the positions at most `hops` grid steps from position `i`, in
+        breadth-first order, one per sphere point (a seam point is reported by its first
+        stored copy).  No vertex objects are created and no visited flags are touched.
+        """
+        i = self._check_row(i)
+        hops = _as_index(hops)
+        if hops < 0:
+            raise ValueError('hops must be a non-negative integer')
+        bfs = self._bfs if self._bfs is not None else self._bfs_state()
+        adj, marks = bfs[0], bfs[2]
+        epoch = bfs[3] = bfs[3] + 1
+        if epoch >= 1 << 62:
+            marks[:] = [0] * len(marks)
+            epoch = bfs[3] = 1
+        r0 = bfs[1][i]
+        marks[r0] = epoch
+        out = [i] if include_self else []
+        frontier = [r0]
+        for _ in range(hops):
+            nxt = []
+            add = nxt.append
+            for c in frontier:
+                for d in adj[c]:
+                    if marks[d] != epoch:
+                        marks[d] = epoch
+                        add(d)
+            if not nxt:
+                break
+            out += nxt
+            frontier = nxt
+        return out
+
+    def within_arc(self, i: int, angle: float, include_self: bool = True) -> np.ndarray:
+        """Storage indices of the positions within great-circle `angle` (radians) of position `i`
+        (seam copies included).  For many queries at once see :mod:`mt.geodesicdome.compute`."""
+        i = self._check_row(i)
+        if not 0.0 <= angle <= pi:
+            raise ValueError('angle must be between 0 and pi radians')
+        mask = self._coords @ self._coords[i] >= cos(angle) - 1e-14
+        if not include_self:
+            mask[self._cls == self._cls[i]] = False
+        return np.flatnonzero(mask)
+
+    @property
+    def n_points(self) -> int:
+        """Number of distinct sphere points (seam copies counted once)."""
+        return self._n_points
+
+    @property
+    def point_index(self) -> np.ndarray:
+        """(N,) the distinct sphere point stored at each position; seam copies share a value."""
+        return self._cls.copy()
 
 
 class IcosahedronDome(GeodesicDome):
@@ -183,424 +498,220 @@ class IcosahedronDome(GeodesicDome):
     def __init__(self, frequency=1, base=None):
         super().__init__()
         self._check_base(base)
+        frequency = self._check_factor(frequency)
         self.arcLength = IcosahedronDome._arc_length  # approximate the average arc length
-        # start from the base icosahedron (frequency 1); split() below multiplies this
         self.frequency = 1
         self.x_max = 6
         self.y_max = 5
-        self.vertices: list[list[GeodesicVertex]] = [[]] * (self.x_max + 1)
 
-        # initialize the icosahedron, calculate all the vertex coordinates
-        dAzimuth = 2 * np.pi / 5
-        dLatitude = ((90 - 26.565) / 180) * np.pi
-
-        # set 22 vertices
-        v1 = GeodesicVertex(coord=util.spherical_to_xyz(dLatitude, 0), x=0, y=0, frequency=1)
-        v2 = GeodesicVertex(coord=util.spherical_to_xyz(0, 0), x=0, y=1, frequency=1)
-        vList1 = [v1, v2]
-        self.vertices[0] = vList1
-
-        v3 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi - dLatitude, dAzimuth * 0.5), x=1, y=0, frequency=1)
-        v4 = GeodesicVertex(coord=util.spherical_to_xyz(dLatitude, dAzimuth), x=1, y=1, frequency=1)
-        v5 = GeodesicVertex(coord=util.spherical_to_xyz(0, 0), x=1, y=2, frequency=1)
-        vList2 = [v3, v4, v5]
-        self.vertices[1] = vList2
-
-        v6 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi, 0), x=2, y=0, frequency=1)
-        v7 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi - dLatitude, dAzimuth * 1.5), x=2, y=1, frequency=1)
-        v8 = GeodesicVertex(coord=util.spherical_to_xyz(dLatitude, dAzimuth * 2), x=2, y=2, frequency=1)
-        v9 = GeodesicVertex(coord=util.spherical_to_xyz(0, 0), x=2, y=3, frequency=1)
-        vList3 = [v6, v7, v8, v9]
-        self.vertices[2] = vList3
-
-        v10 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi, 0), x=3, y=1, frequency=1)
-        v11 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi - dLatitude, dAzimuth * 2.5), x=3, y=2, frequency=1)
-        v12 = GeodesicVertex(coord=util.spherical_to_xyz(dLatitude, dAzimuth * 3), x=3, y=3, frequency=1)
-        v13 = GeodesicVertex(coord=util.spherical_to_xyz(0, 0), x=3, y=4, frequency=1)
-        vList4 = [v10, v11, v12, v13]
-        self.vertices[3] = vList4
-
-        v14 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi, 0), x=4, y=2, frequency=1)
-        v15 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi - dLatitude, dAzimuth * 3.5), x=4, y=3, frequency=1)
-        v16 = GeodesicVertex(coord=util.spherical_to_xyz(dLatitude, dAzimuth * 4), x=4, y=4, frequency=1)
-        v17 = GeodesicVertex(coord=util.spherical_to_xyz(0, 0), x=4, y=5, frequency=1)
-        vList5 = [v14, v15, v16, v17]
-        self.vertices[4] = vList5
-
-        v18 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi, 0), x=5, y=3, frequency=1)
-        v19 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi - dLatitude, dAzimuth * 4.5), x=5, y=4, frequency=1)
-        v20 = GeodesicVertex(coord=util.spherical_to_xyz(dLatitude, 0), x=5, y=5, frequency=1)
-        vList6 = [v18, v19, v20]
-        self.vertices[5] = vList6
-
-        v21 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi, 0), x=6, y=4, frequency=1)
-        v22 = GeodesicVertex(coord=util.spherical_to_xyz(np.pi - dLatitude, dAzimuth * 0.5), x=6, y=5, frequency=1)
-        vList7 = [v21, v22]
-        self.vertices[6] = vList7
-
-        # initialize same vertices list for vertices
-        # v1
-        v1.same_vertices = [v20]
-
-        # v2
-        v2.same_vertices = [v5, v9, v13, v17]
-
-        # v3
-        v3.same_vertices = [v22]
-
-        # v5
-        v5.same_vertices = [v2, v9, v13, v17]
-
-        # v6
-        v6.same_vertices = [v10, v14, v18, v21]
-
-        # v9
-        v9.same_vertices = [v2, v5, v13, v17]
-
-        # v10
-        v10.same_vertices = [v6, v14, v18, v21]
-
-        # v13
-        v13.same_vertices = [v2, v5, v9, v17]
-
-        # v14
-        v14.same_vertices = [v6, v10, v18, v21]
-
-        # v17
-        v17.same_vertices = [v2, v5, v9, v13]
-
-        # v18
-        v18.same_vertices = [v6, v10, v14, v21]
-
-        # v20
-        v20.same_vertices = [v1]
-
-        # v21
-        v21.same_vertices = [v6, v10, v14, v18]
-
-        # v22
-        v22.same_vertices = [v3]
-
+        d_az = 2 * np.pi / 5
+        d_lat = ((90 - 26.565) / 180) * np.pi
+        # (x, y, colatitude, longitude) of v1 .. v22
+        spec = [(0, 0, d_lat, 0), (0, 1, 0, 0),
+                (1, 0, np.pi - d_lat, d_az * 0.5), (1, 1, d_lat, d_az), (1, 2, 0, 0),
+                (2, 0, np.pi, 0), (2, 1, np.pi - d_lat, d_az * 1.5), (2, 2, d_lat, d_az * 2), (2, 3, 0, 0),
+                (3, 1, np.pi, 0), (3, 2, np.pi - d_lat, d_az * 2.5), (3, 3, d_lat, d_az * 3), (3, 4, 0, 0),
+                (4, 2, np.pi, 0), (4, 3, np.pi - d_lat, d_az * 3.5), (4, 4, d_lat, d_az * 4), (4, 5, 0, 0),
+                (5, 3, np.pi, 0), (5, 4, np.pi - d_lat, d_az * 4.5), (5, 5, d_lat, 0),
+                (6, 4, np.pi, 0), (6, 5, np.pi - d_lat, d_az * 0.5)]
+        xy = np.array([(x, y) for x, y, _, _ in spec], dtype=np.int32)
+        coords = np.array([util.spherical_to_xyz(t, lon) for _, _, t, lon in spec], dtype=np.float64)
+        top = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]          # v2 v5 v9 v13 v17 (north pole)
+        bottom = [(2, 0), (3, 1), (4, 2), (5, 3), (6, 4)]       # v6 v10 v14 v18 v21 (south pole)
+        same = {(0, 0): [(5, 5)], (5, 5): [(0, 0)], (1, 0): [(6, 5)], (6, 5): [(1, 0)]}
+        for group in (top, bottom):
+            for p in group:
+                same[p] = [q for q in group if q != p]
+        self._finish(xy, coords, same)
         if frequency > 1:
             self.split(frequency)
 
     def __repr__(self) -> str:
         return f'GeodesicDome(frequency={self.frequency})'
 
-    def _find_same_vertices(self):
+    # ------------------------------------------------------------------ construction
+    def _finish(self, xy: np.ndarray, coords: np.ndarray, same_xy: dict) -> None:
+        """Index grid, faces, neighbours and seam classes from the stored positions."""
+        index = np.full((self.x_max + 1, self.y_max + 1), -1, dtype=np.int32)
+        index[xy[:, 0], xy[:, 1]] = np.arange(len(xy), dtype=np.int32)
+        valid = index >= 0
+        # faces: every grid cell whose four corners are stored, cut along (x, y)-(x+1, y+1)
+        cx, cy = np.nonzero(valid[:-1, :-1] & valid[1:, :-1] & valid[1:, 1:] & valid[:-1, 1:])
+        o, r, d, u = index[cx, cy], index[cx + 1, cy], index[cx + 1, cy + 1], index[cx, cy + 1]
+        faces = np.stack([np.stack([o, r, d], axis=1), np.stack([o, d, u], axis=1)], axis=1).reshape(-1, 3)
+        same = {int(index[p]): [int(index[q]) for q in qs] for p, qs in same_xy.items()}
+        # seam classes: union-find over the (few) seam positions
+        parent = {}
+
+        def find(a):
+            while parent.get(a, a) != a:
+                parent[a] = parent.get(parent[a], parent[a])
+                a = parent[a]
+            return a
+
+        for p, qs in same.items():
+            for q in qs:
+                rp, rq = find(p), find(q)
+                if rp != rq:
+                    parent[max(rp, rq)] = min(rp, rq)
+        root = np.arange(len(xy), dtype=np.int64)
+        if same:
+            keys = np.fromiter(same.keys(), dtype=np.int64, count=len(same))
+            root[keys] = [find(int(k)) for k in keys]
+        _, cls = np.unique(root, return_inverse=True)
+        self._same_xy = same_xy
+        self._set_arrays(xy, index, coords, faces, self._neighbour_candidates(xy, index), same,
+                         cls.reshape(-1).astype(np.int32))
+
+    def _find_same_vertices(self, same: dict, column_range) -> None:
         """
-            used after split, find the same vertices for the new generated vertices
-                               *
-                             / |
-                            / /*
-                           / / |
-                   ^     *--*--*
-                   |     |
-                   |     *
-                         |
+        After a split: pairs up the new positions on the cut edges of the net, walking the cuts
+        exactly as the original implementation did (positions are (x, y) tuples).
         """
-        first_x: list[GeodesicVertex] = self.vertices[0]
-        top_current: GeodesicVertex = first_x[len(first_x) - 1]
-        top_next: GeodesicVertex = None
-        # stage1, travel through the top vertices that has 4 same vertices points
-        # through v2, v5, v9, v13 and v17
+        def has(p):
+            return bool(same.get(p))
+
+        lo0, hi0 = column_range(0)
+        top_current = (0, hi0)
+        top_next = None
+        # stage1, travel through the top vertices that has 4 same vertices points (v2 v5 v9 v13 v17)
         i = 0
-        while i < len(top_current.same_vertices):
-            top_next = top_current.same_vertices[i]
-            x1 = top_current.x
-            y1 = top_current.y
-            x2 = top_next.x
-            y2 = top_next.y
-            top_middle: GeodesicVertex = self.get_vertex_at(x1 + 1, y1)
+        while i < len(same[top_current]):
+            top_next = same[top_current][i]
+            x1, y1 = top_current
+            x2, y2 = top_next
+            top_middle = (x1 + 1, y1)
             while (x1 + 1) != x2:
-                if top_middle.same_vertices is not None and top_middle.same_vertices:
-                    x1 += 1
-                    y2 -= 1
-                    top_middle = self.get_vertex_at(x1 + 1, y1)
-                    continue
-
-                top_middle_match = self.get_vertex_at(x2, y2 - 1)
-                top_middle.same_vertices = [top_middle_match]
-                top_middle_match.same_vertices = [top_middle]
-
+                if not has(top_middle):
+                    match = (x2, y2 - 1)
+                    same[top_middle] = [match]
+                    same[match] = [top_middle]
                 x1 += 1
                 y2 -= 1
-                top_middle = self.get_vertex_at(x1 + 1, y1)
-
+                top_middle = (x1 + 1, y1)
             top_current = top_next
             i += 1
 
-        # stage 2, travel through the flat top vertex
-        # through v20, v21
-        v17_x = top_next.x  # v17
-        v17_y = top_next.y
-        v2 = self.vertices[0][len(self.vertices[0]) - 1]
-        for i in range(v17_x + 1, self.x_max):
-            vHigh = self.get_vertex_at(i, v17_y)
-            if vHigh.same_vertices is not None and vHigh.same_vertices:
+        # stage 2, travel through the flat top vertex (v20, v21)
+        v17_x, v17_y = top_next
+        v2_y = hi0
+        for x in range(v17_x + 1, self.x_max):
+            high = (x, v17_y)
+            if has(high):
                 continue
-
-            xdiff = vHigh.x - v17_x
-            vLow = self.get_vertex_at(0, v2.y - xdiff) if (xdiff < v2.y) else self.get_vertex_at(xdiff - v2.y, 0)
-
-            vHigh.same_vertices = [vLow]
-            vLow.same_vertices = [vHigh]
+            xdiff = x - v17_x
+            low = (0, v2_y - xdiff) if xdiff < v2_y else (xdiff - v2_y, 0)
+            same[high] = [low]
+            same[low] = [high]
 
         # through v21 to v22
-        last_x = self.vertices[self.x_max]
-        v22 = last_x[len(last_x) - 1]
-        v3 = v22.same_vertices[0]
-        for i in range(len(last_x) - 1 - 1, 0, -1):
-            test = last_x[i]
-            if test.same_vertices is not None and test.same_vertices:
+        lo, hi = column_range(self.x_max)
+        last = [(self.x_max, y) for y in range(lo, hi + 1)]
+        v22 = last[-1]
+        v3 = same[v22][0]
+        for k in range(len(last) - 2, 0, -1):
+            test = last[k]
+            if has(test):
                 continue
-            match = self.get_vertex_at(v3.x + (v22.y - test.y), 0)
-            match.same_vertices = [test]
-            test.same_vertices = [match]
+            match = (v3[0] + (v22[1] - test[1]), 0)
+            same[match] = [test]
+            same[test] = [match]
 
-        # stage 3, travel through the boottom vertice that has 4 same vertices
-        # through v21, v18, v14, v10, v6
-        v21 = last_x[0]
-        v1 = v21
-        i = len(v1.same_vertices) - 1
+        # stage 3, travel through the bottom vertices that has 4 same vertices (v21 v18 v14 v10 v6)
+        v1 = last[0]
+        i = len(same[v1]) - 1
         while i >= 0:
-            v2 = v1.same_vertices[i]  # v18
-            x1 = v1.x
-            y1 = v1.y
-            x2 = v2.x
-            y2 = v2.y
-            v3: GeodesicVertex = self.get_vertex_at(x1 - 1, y1)
+            v2 = same[v1][i]
+            x1, y1 = v1
+            x2, y2 = v2
+            v3 = (x1 - 1, y1)
             while (x1 - 1) != x2:
-                # print(f'x1, x2, y1, y2, v2, v3 = {x1, x2, y1, y2, v2, v3}')
-                if v3.same_vertices is not None and v3.same_vertices:
-                    x1 -= 1
-                    y2 += 1
-                    v3 = self.get_vertex_at(x1 - 1, y1)
-                    continue
-
-                v4 = self.get_vertex_at(x2, y2 + 1)
-                v3.same_vertices = [v4]
-                v4.same_vertices = [v3]
-
+                if not has(v3):
+                    v4 = (x2, y2 + 1)
+                    same[v3] = [v4]
+                    same[v4] = [v3]
                 x1 -= 1
                 y2 += 1
-                v3 = self.get_vertex_at(x1 - 1, y1)
-
+                v3 = (x1 - 1, y1)
             v1 = v2
             i -= 1
 
-    # increase frequency
     def split(self, frequency):
         """
         Subdivides every edge of the current dome into `frequency` segments.
         Calls are cumulative: split(2) followed by split(3) gives frequency 6.
+        The vertices are rebuilt, so vertex objects from before the split are not reused.
 
-        :param frequency: subdivision factor (an int >= 2)
+        :param frequency: subdivision factor (an int >= 1)
         :return: None
         """
-        self.frequency *= frequency
-        self.x_max *= frequency
-        self.y_max *= frequency
-        self.arcLength /= frequency
+        f = self._check_factor(frequency)
+        if f == 1:
+            return
+        old_index, old_coords = self._index, self._coords
+        valid = old_index >= 0
+        X, Y = self.x_max * f, self.y_max * f
 
-        # temporary new vector for storing the vertices of the new frequency
-        new_vertices: list[list[GeodesicVertex]] = [[]] * (self.x_max + 1)
+        # which new grid cells are stored: old vertices, points on old column / row edges,
+        # and every point of an old cell
+        vert = valid[:, :-1] & valid[:, 1:]                       # (x, y)-(x, y+1)
+        hori = valid[:-1, :] & valid[1:, :]                       # (x, y)-(x+1, y)
+        cell = vert[:-1, :] & vert[1:, :] & hori[:, :-1] & hori[:, 1:]
+        vx, vy = np.nonzero(vert)
+        hx, hy = np.nonzero(hori)
+        cx, cy = np.nonzero(cell)
+        ox, oy = np.nonzero(valid)
+        steps = np.arange(1, f)
+        full = np.arange(f + 1)
+        new_valid = np.zeros((X + 1, Y + 1), dtype=bool)
+        new_valid[f * ox, f * oy] = True
+        new_valid[f * vx[:, None], f * vy[:, None] + steps] = True
+        new_valid[f * hx[:, None] + steps, f * hy[:, None]] = True
+        new_valid[f * cx[:, None, None] + full[None, :, None], f * cy[:, None, None] + full[None, None, :]] = True
 
-        # split the first vector of x-vertices
-        new_x_vertices1: list[GeodesicVertex] = _split_x_vertices(self.vertices[0], frequency)
-        new_vertices[0] = new_x_vertices1
-        # print(f'# of columns  : {len(self.vertices)}')
-        for i in range(len(self.vertices) - 1):
-            # print(f'processing index : {i}')
-            new_x_vertices2: list[GeodesicVertex] = _split_x_vertices(self.vertices[i + 1], frequency)
-            new_vertices[(i + 1) * frequency] = new_x_vertices2
+        nx, ny = np.nonzero(new_valid)
+        index = np.full((X + 1, Y + 1), -1, dtype=np.int32)
+        index[nx, ny] = np.arange(len(nx), dtype=np.int32)
+        coords = np.empty((len(nx), 3), dtype=np.float64)
 
-            # create the vertices between the 2 new vectors
-            RB = new_x_vertices2[0]  # right bottom
-            LT = new_x_vertices1[len(new_x_vertices1) - 1]  # left top
-            length = (LT.y - RB.y + 1)
+        def put(x, y, p):
+            coords[index[x, y]] = p
 
-            # prepare (x-vertices * (frequency -1)) to be inserted
-            for k in range(frequency - 1):
-                index: int = i * frequency + k + 1
-                new_vertices[index] = [None] * length
+        def get(x, y):
+            return coords[index[x, y]]
 
-            # fill-in key horizontals.
-            horiindex = []
-            for n in range(len(new_x_vertices1) - 1, -1, -frequency):
-                left: GeodesicVertex = new_x_vertices1[n]
-                # print(f'left.y: {left.y}')
-                right: GeodesicVertex = None
-                right_y: int = 0
-                for m in range(len(new_x_vertices2) - 1, -1, -1):
-                    testing: GeodesicVertex = new_x_vertices2[m]
-                    # print(f'testing: {testing.y}')
-                    if testing.y == left.y:
-                        right = testing
-                        right_y = m
-                        horiindex.append([n, m])
-                        break
-                if right is not None:
-                    inserting: list[GeodesicVertex] = _partition(frequency, left, right)
-                    for v in inserting:
-                        new_vertices[v.x][right_y] = v
+        # old vertices keep their coordinates
+        put(f * ox, f * oy, old_coords[old_index[ox, oy]])
+        if f > 1:
+            # columns, bottom to top; rows, left to right; cell diagonals (x, y) -> (x+1, y+1)
+            put(f * vx[:, None], f * vy[:, None] + steps,
+                _partition(old_coords[old_index[vx, vy]], old_coords[old_index[vx, vy + 1]], f, steps))
+            put(f * hx[:, None] + steps, f * hy[:, None],
+                _partition(old_coords[old_index[hx, hy]], old_coords[old_index[hx + 1, hy]], f, steps))
+            put(f * cx[:, None] + steps, f * cy[:, None] + steps,
+                _partition(old_coords[old_index[cx, cy]], old_coords[old_index[cx + 1, cy + 1]], f, steps))
+            # cell interiors, on lines parallel to the diagonal:
+            #   upper-left triangle (O, D, U): from the left column up to the top row
+            #   lower-right triangle (O, R, D): from the bottom row up to the right column
+            bx, by = f * cx, f * cy
+            for h in range(2, f):
+                k = np.arange(1, h)
+                put(bx[:, None] + k, by[:, None] + (f - h) + k,
+                    _partition(get(bx, by + f - h), get(bx + h, by + f), h, k))
+                put(bx[:, None] + (f - h) + k, by[:, None] + k,
+                    _partition(get(bx + f - h, by), get(bx + f, by + h), h, k))
 
-            # fill-in diagonals
-            base_index = i * frequency
-            for hi in range(len(horiindex) - 1):
-                [h_index, m] = horiindex[hi]
-                for h_count in range(2, frequency + 1):
-                    b1 = new_vertices[base_index][h_index - h_count]
-                    t1h = len(new_vertices[base_index + h_count]) - 1 - hi * frequency if h_count < frequency else m
-                    t1 = new_vertices[base_index + h_count][t1h]
-                    new_points1 = _partition(h_count, b1, t1)
-                    for ii in range(len(new_points1)):
-                        new_v = new_points1[ii]
-                        new_vertices[new_v.x][t1h - h_count + 1 + ii] = new_v
-                    if h_count < frequency:
-                        b2 = new_vertices[base_index + frequency - h_count][t1h - frequency]
-                        t2 = new_vertices[base_index + frequency][m - frequency + h_count]
-                        new_points2 = _partition(h_count, b2, t2)
-                        for jj in range(len(new_points2)):
-                            new_v = new_points2[jj]
-                            new_vertices[new_v.x][t1h - frequency + 1 + jj] = new_v
+        self.frequency *= f
+        self.x_max, self.y_max = X, Y
+        self.arcLength /= f
+        same = {(f * x, f * y): [(f * a, f * b) for a, b in qs] for (x, y), qs in self._same_xy.items()}
+        first = np.searchsorted(nx, np.arange(X + 2))
 
-            # ready for the next iteration
-            new_x_vertices1 = new_x_vertices2
+        def column_range(x):
+            return int(ny[first[x]]), int(ny[first[x + 1] - 1])
 
-        self.vertices = new_vertices
-        self._find_same_vertices()
-
-    def get_vertex_at(self, x, y) -> GeodesicVertex:
-        if (x <= self.x_max) and (y <= self.y_max) and (x >= 0) and (y >= 0):
-            xVector: list[GeodesicVertex] = self.vertices[x]
-
-            # offset
-            offset = xVector[0].y
-            if y >= offset and y < (len(xVector) + offset):
-                return xVector[y - offset]
-
-    def _build_faces(self) -> list[GeodesicVertex]:
-        self._updateIDs()
-        vNum = 3 * 20 * self.frequency * self.frequency
-        self.triangles: list[GeodesicVertex] = [None] * vNum
-        index = 0
-        for i in range(len(self.vertices) - 1):
-            # print(f'builsing face at : {i}')
-            current_x: list[GeodesicVertex] = self.vertices[i]
-            next_x: list[GeodesicVertex] = self.vertices[i + 1]
-            next_bottom_y = next_x[0].y
-            for j in range(len(current_x) - 1):
-                if current_x[j].y == next_bottom_y:  # found the starting point
-                    for k in range(j, len(current_x) - 1):
-                        #  triangle 1
-                        self.triangles[index] = current_x[k]  # v1
-                        self.triangles[index + 1] = next_x[k - j]  # v2
-                        self.triangles[index + 2] = next_x[k - j + 1]  # v3
-
-                        # triangle 2
-                        self.triangles[index + 3] = self.triangles[index]
-                        self.triangles[index + 4] = self.triangles[index + 2]
-                        self.triangles[index + 5] = current_x[k + 1]  # v4
-                        index += 6
-                    break
-
-        return self.triangles
-
-    def get_neighbours(self, v: GeodesicVertex, visit_same_vertex: bool) -> list[GeodesicVertex]:
-        v.visited = True
-        x = v.x
-        y = v.y
-        if v.same_vertices:
-            _mark_same_vertices(v, True)
-
-        # find the neighbors
-        neighbours: list[GeodesicVertex] = []
-        xArray1 = self.vertices[v.x]
-        offset1 = xArray1[0].y
-
-        # x, y + 1
-        if (y + 1) < (len(xArray1) + offset1):
-            n1 = xArray1[y + 1 - offset1]
-            if not n1.visited:
-                n1.visited = True
-                neighbours.append(n1)
-                if n1.same_vertices:
-                    _mark_same_vertices(n1, True)
-        # x, y - 1
-        if (y - 1) >= offset1:
-            n4 = xArray1[y - 1 - offset1]
-            if not n4.visited:
-                n4.visited = True
-                neighbours.append(n4)
-                if n4.same_vertices:
-                    _mark_same_vertices(n4, True)
-
-        if (x + 1) <= self.x_max:
-            xArray2 = self.vertices[v.x + 1]
-            offset2 = xArray2[0].y
-
-            # x+1, y
-            if y >= offset2 and y < (len(xArray2) + offset2):
-                n2 = xArray2[y - offset2]
-                if not n2.visited:
-                    n2.visited = True
-                    neighbours.append(n2)
-                    if n2.same_vertices:
-                        _mark_same_vertices(n2, True)
-
-            '''
-            x+1, y+1 is most probably v's same vertex point
-            if n3's is in v.sameVertics, markSameVertex(n3,frequency) would mark all
-            the v's same vertices, so that the program would not searching for v's same Vertices's
-            neighbor later
-            '''
-            if (y + 1) >= offset2 and (y + 1) < len(xArray2) + offset2:
-                n3 = xArray2[y + 1 - offset2]
-                if not n3.visited:
-                    n3.visited = True
-                    neighbours.append(n3)
-                    if n3.same_vertices:
-                        _mark_same_vertices(n3, True)
-        if (x - 1) >= 0:
-            xArray3 = self.vertices[v.x - 1]
-            offset3 = xArray3[0].y
-            '''
-            x - 1, y - 1 is most probably v's same vertex point
-            if n5's is in v.sameVerticsList, markSameVertex(n5,frequency) would mark all
-            the v's same vertices, so that the program would not searching for v's same Vertices's
-            neighbor later
-            '''
-            if (y - 1) < (len(xArray3) + offset3) and (y - 1) >= offset3:
-                n5 = xArray3[y - 1 - offset3]
-                if not n5.visited:
-                    n5.visited = True
-                    neighbours.append(n5)
-                    if n5.same_vertices:
-                        _mark_same_vertices(n5, True)
-
-            # x - 1, y
-            if y < (len(xArray3) + offset3) and y >= offset3:
-                n6: GeodesicVertex = xArray3[y - offset3]
-                if not n6.visited:
-                    n6.visited = True
-                    neighbours.append(n6)
-                    if n6.same_vertices:
-                        _mark_same_vertices(n6, True)
-
-        # find the neighbor of the same vertex;
-        if v.same_vertices is None or visit_same_vertex:
-            return neighbours
-
-        for vSame in v.same_vertices:
-            vSameNeighbor = self.get_neighbours(vSame, True)
-            neighbours.extend(vSameNeighbor)
-
-        return neighbours
-
-
-# grid offsets of the six neighbours, in the order IcosahedronDome.get_neighbours visits them
-_DIRECTIONS = ((0, 1), (0, -1), (1, 0), (1, 1), (-1, -1), (-1, 0))
+        self._find_same_vertices(same, column_range)
+        self._finish(np.stack([nx, ny], axis=1).astype(np.int32), coords, same)
 
 
 class NetDome(GeodesicDome):
@@ -623,11 +734,10 @@ class NetDome(GeodesicDome):
     def __init__(self, frequency=1, base=None):
         super().__init__()
         self._check_base(base)
+        frequency = self._check_factor(frequency)
         self.net: BaseNet = base_net(self.base)
         self.frequency = 1
-        self._build(1)
-        if frequency > 1:
-            self.split(frequency)
+        self._build(frequency)
 
     def __repr__(self) -> str:
         return f'GeodesicDome(frequency={self.frequency}, base={self.base!r})'
@@ -642,104 +752,109 @@ class NetDome(GeodesicDome):
         :param frequency: subdivision factor (an int >= 1)
         :return: None
         """
-        frequency = int(frequency)
-        if frequency < 1:
-            raise ValueError('frequency must be a positive integer')
-        if frequency > 1:
-            self._build(self.frequency * frequency)
+        f = self._check_factor(frequency)
+        if f > 1:
+            self._build(self.frequency * f)
+
+    @staticmethod
+    def _template(f: int):
+        """Local lattice of one f-frequency triangle: point (i, j) for i + j <= f in the
+        original loop order, and its small triangles in the original order."""
+        ii = np.concatenate([np.full(f + 1 - i, i) for i in range(f + 1)])
+        jj = np.concatenate([np.arange(f + 1 - i) for i in range(f + 1)])
+        local = np.full((f + 2, f + 2), -1, dtype=np.int64)
+        local[ii, jj] = np.arange(len(ii))
+        tris = []
+        for i in range(f):
+            for j in range(f - i):
+                tris.append((local[i, j], local[i + 1, j], local[i, j + 1]))
+                if i + j <= f - 2:
+                    tris.append((local[i + 1, j], local[i + 1, j + 1], local[i, j + 1]))
+        return ii, jj, np.array(tris, dtype=np.int64).reshape(-1, 3)
 
     def _build(self, f: int) -> None:
         net = self.net
         self.frequency = f
         self.x_max, self.y_max = net.grid_size(f)
-        grid: list[list[GeodesicVertex | None]] = [[None] * (self.y_max + 1) for _ in range(self.x_max + 1)]
-        keys: dict[tuple[int, int], tuple] = {}
-        copies: dict[tuple, list[GeodesicVertex]] = {}
-        triangles: list[tuple[GeodesicVertex, GeodesicVertex, GeodesicVertex]] = []
+        ids = net.triangles.astype(np.int64)                     # (T, 3)
+        corners = net.points[net.triangles]                     # (T, 3, 3)
+        lat = net.lattice.astype(np.int64) * f                  # (T, 3, 2)
+        o = lat[:, 0]
+        e1 = (lat[:, 1] - o) // f
+        e2 = (lat[:, 2] - o) // f
+        ii, jj, tris = self._template(f)
+        L, T = len(ii), len(ids)
+        counts = np.stack([f - ii - jj, ii, jj], axis=1)        # (L, 3)
 
-        for ids, corners, (o, a1, a2) in zip(net.triangles, net.points[net.triangles], net.lattice * f, strict=True):
-            e1 = (a1 - o) // f                    # one grid step along each side of the triangle
-            e2 = (a2 - o) // f
-            local: dict[tuple[int, int], GeodesicVertex] = {}
-            for i in range(f + 1):
-                for j in range(f + 1 - i):
-                    counts = (f - i - j, i, j)
-                    key = tuple(sorted((int(ids[k]), counts[k]) for k in range(3) if counts[k]))
-                    x, y = (int(c) for c in o + i * e1 + j * e2)
-                    v = grid[x][y]
-                    if v is None:
-                        coord = (counts[0] * corners[0] + counts[1] * corners[1] + counts[2] * corners[2]) / f
-                        v = GeodesicVertex(coord=coord / np.linalg.norm(coord), x=x, y=y, frequency=f)
-                        grid[x][y] = v
-                        keys[x, y] = key
-                        copies.setdefault(key, []).append(v)
-                    elif keys[x, y] != key:
-                        raise AssertionError(f'{self.base} net overlaps itself at grid ({x}, {y})')
-                    local[i, j] = v
-            for i in range(f):
-                for j in range(f - i):
-                    triangles.append((local[i, j], local[i + 1, j], local[i, j + 1]))
-                    if i + j <= f - 2:
-                        triangles.append((local[i + 1, j], local[i + 1, j + 1], local[i, j + 1]))
+        gx = o[:, None, 0] + ii[None, :] * e1[:, None, 0] + jj[None, :] * e2[:, None, 0]   # (T, L)
+        gy = o[:, None, 1] + ii[None, :] * e1[:, None, 1] + jj[None, :] * e2[:, None, 1]
+        cell = (gx * (self.y_max + 1) + gy).ravel()
 
-        # seam copies
-        for group in copies.values():
-            for v in group:
-                v.same_vertices = [w for w in group if w is not v] if len(group) > 1 else None
+        # seam key of every point: its non-zero barycentric counts against the base corners
+        n_base = len(net.points)
+        pid = np.where(counts[None, :, :] > 0, ids[:, None, :], n_base)                 # (T, L, 3)
+        cnt = np.where(counts[None, :, :] > 0, np.broadcast_to(counts, (T, L, 3)), 0)
+        order = np.argsort(pid, axis=2, kind='stable')
+        pid = np.take_along_axis(pid, order, axis=2)
+        cnt = np.take_along_axis(cnt, order, axis=2)
+        code = pid * (f + 1) + cnt
+        base_ = (n_base + 1) * (f + 1)
+        key = ((code[..., 0] * base_ + code[..., 1]) * base_ + code[..., 2]).ravel()
 
-        # which of the six grid offsets are edges of the net
-        edges = set()
-        for tri in triangles:
-            for k in range(3):
-                p, q = tri[k], tri[(k + 1) % 3]
-                edges.add((p.x, p.y, q.x - p.x, q.y - p.y))
-                edges.add((q.x, q.y, p.x - q.x, p.y - q.y))
-        for column in grid:
-            for v in column:
-                if v is not None:
-                    v.neighbour_mask = sum(1 << k for k, (dx, dy) in enumerate(_DIRECTIONS)
-                                           if (v.x, v.y, dx, dy) in edges)
+        # one stored position per grid cell, taken from the first triangle that reaches it
+        cells, first, inverse = np.unique(cell, return_index=True, return_inverse=True)
+        inverse = inverse.reshape(-1)
+        if (key != key[first][inverse]).any():
+            bad = int(np.flatnonzero(key != key[first][inverse])[0])
+            raise AssertionError(f'{self.base} net overlaps itself at grid '
+                                 f'({int(gx.ravel()[bad])}, {int(gy.ravel()[bad])})')
+        xy = np.stack([cells // (self.y_max + 1), cells % (self.y_max + 1)], axis=1).astype(np.int32)
+        t_of, l_of = np.divmod(first, L)
+        c = counts[l_of]
+        p = corners[t_of]
+        coords = (c[:, 0, None] * p[:, 0] + c[:, 1, None] * p[:, 1] + c[:, 2, None] * p[:, 2]) / f
+        coords = _normalise_rows(coords)
 
-        self._grid = grid
-        self.vertices = [[v for v in column if v is not None] for column in grid]
-        self._net_triangles = triangles
-        ends = np.array([[[p.coord, q.coord] for p, q in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0]))]
-                         for t in triangles]).reshape(-1, 2, 3)
-        cos = np.clip(np.einsum('ij,ij->i', ends[:, 0], ends[:, 1]), -1.0, 1.0)
-        self.arcLength = float(np.arccos(cos).mean())   # mean great-circle edge length (radians)
+        index = np.full((self.x_max + 1, self.y_max + 1), -1, dtype=np.int32)
+        index[xy[:, 0], xy[:, 1]] = np.arange(len(xy), dtype=np.int32)
 
-    # ------------------------------------------------------------------ queries
-    def get_vertex_at(self, x, y) -> GeodesicVertex:
-        if 0 <= x <= self.x_max and 0 <= y <= self.y_max:
-            return self._grid[x][y]
-        return None
+        # seam copies: stored positions with the same key, listed in creation order
+        skey = key[first]
+        uniq, cls, size = np.unique(skey, return_inverse=True, return_counts=True)
+        cls = cls.reshape(-1)
+        same: dict[int, list[int]] = {}
+        seam = np.flatnonzero(size[cls] > 1)
+        if len(seam):
+            seam = seam[np.lexsort((first[seam], cls[seam]))]
+            groups = np.split(seam, np.flatnonzero(np.diff(cls[seam])) + 1)
+            for g in groups:
+                g = g.tolist()
+                for a in g:
+                    same[a] = [b for b in g if b != a]
 
-    def _build_faces(self) -> list[GeodesicVertex]:
-        self._updateIDs()
-        self.triangles = [v for tri in self._net_triangles for v in tri]
-        return self.triangles
-
-    def get_neighbours(self, v: GeodesicVertex, visit_same_vertex: bool = False) -> list[GeodesicVertex]:
-        v.visited = True
-        if v.same_vertices:
-            _mark_same_vertices(v, True)
-
-        neighbours: list[GeodesicVertex] = []
-        grid, mask = self._grid, v.neighbour_mask
+        # faces in the original order; which of the six offsets are edges of the net
+        faces = inverse.reshape(T, L)[:, tris].reshape(-1, 3).astype(np.int32)
+        a = faces.ravel()
+        b = faces[:, [1, 2, 0]].ravel()
+        dirs = np.full((3, 3), -1, dtype=np.int64)
         for k, (dx, dy) in enumerate(_DIRECTIONS):
-            if mask >> k & 1:
-                n = grid[v.x + dx][v.y + dy]
-                if not n.visited:
-                    n.visited = True
-                    neighbours.append(n)
-                    if n.same_vertices:
-                        _mark_same_vertices(n, True)
+            dirs[dx + 1, dy + 1] = k
+        mask = np.zeros(len(xy), dtype=np.int64)
+        for p_, q_ in ((a, b), (b, a)):
+            k = dirs[xy[q_, 0] - xy[p_, 0] + 1, xy[q_, 1] - xy[p_, 1] + 1]
+            np.bitwise_or.at(mask, p_, np.left_shift(1, k))
+        cand = self._neighbour_candidates(xy, index)
+        cand[(mask[:, None] >> np.arange(6)[None, :]) & 1 == 0] = -1
+        self._mask = mask
 
-        if v.same_vertices is None or visit_same_vertex:
-            return neighbours
-        for v_same in v.same_vertices:
-            neighbours.extend(self.get_neighbours(v_same, True))
-        return neighbours
+        ends = coords[faces[:, [[0, 1], [1, 2], [2, 0]]]].reshape(-1, 2, 3)
+        cosine = np.clip(np.einsum('ij,ij->i', ends[:, 0], ends[:, 1]), -1.0, 1.0)
+        self.arcLength = float(np.arccos(cosine).mean())   # mean great-circle edge length (radians)
+        self._set_arrays(xy, index, coords, faces, cand, same, cls.astype(np.int32))
+
+    def _after_materialise(self, flat) -> None:
+        for v, m in zip(flat, self._mask.tolist(), strict=True):
+            v.neighbour_mask = m
 
 
 class TetrahedronDome(NetDome):

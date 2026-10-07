@@ -5,6 +5,29 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Much faster, much smaller `GeodesicDome`.** Storage is now array-first: coordinates, grid positions, the
+  index grid, faces, the six grid neighbours and the seam classes are NumPy arrays built with vectorised code,
+  and the `GeodesicVertex` objects are created only when something asks for them (`vertices`,
+  `get_all_vertices`, `get_vertex_at`, `get_neighbours`, ...). `get_all_xyz`, `get_all_triangles` and
+  `compute.DomeArrays` never create them. Icosahedral dome, f = 32: build 170 ms → 3 ms (8 ms with all
+  vertex objects), live memory 7.4 MiB → 1.2 MiB (3.3 MiB with all vertex objects); f = 64: 744 ms → 9 ms.
+  Tetrahedral (f = 64) and dodecahedral (f = 32) domes: 237 ms → 8 ms and 1036 ms → 23 ms.
+  Details, benchmarks and the equivalence checks: [docs/performance.md](docs/performance.md) and `benchmarks/`.
+- Coordinates, storage order, faces, seam copies (`same_vertices`), neighbour order and rings are
+  bit-for-bit the same as before, including cumulative `split()`.
+- `GeodesicVertex` (and `Vertex`) use `__slots__` (other attributes still work); `vertex.coord` is a view of the
+  dome's coordinate array, `vertex.latlon_coord` is computed on first use, `vertex.id` is set on creation and
+  `vertex.manifold` is the dome. `IcosahedronDome.split()` now rebuilds the vertices (as `NetDome.split()`
+  already did) and rejects non-integer factors.
+- `get_neighbours` / `get_neighbours_in_distance` use a cached neighbour table (2-4x faster).
+
+### Added
+- Index API that needs no vertex objects and no visited flags: `dome.within_hops(i, hops)`,
+  `dome.neighbour_ids(i)`, `dome.within_arc(i, angle)`, `dome.n_points`, `dome.point_index`
+  (row `i` = `vertex.id` = row of `get_all_xyz()`). `within_hops` is 5-7x faster than
+  `get_neighbours_in_distance` was before.
+
 ## [1.3.2] — 2026-10-03
 
 ### No major change

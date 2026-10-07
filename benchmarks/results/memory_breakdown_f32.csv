@@ -1,0 +1,5 @@
+structure,MiB,built_when
+arrays,1.19,construction
+hop index,1.37,first within_hops / neighbour_ids call
+vertex objects,2.11,first vertices / get_all_vertices / get_vertex_at call
+object neighbour table,0.97,first get_neighbours / get_neighbours_in_distance call

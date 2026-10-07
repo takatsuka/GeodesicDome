@@ -28,6 +28,7 @@ points evenly on a sphere, or cellular automata on a globe.
 
 For development set-up, see the [README](../README.md#working-on-this-repository-setup_envsh-recommended)
 and [CONTRIBUTING.md](../CONTRIBUTING.md). Release notes are in [CHANGELOG.md](../CHANGELOG.md).
+How the dome is stored and how fast it is: [performance.md](performance.md).
 
 ---
 
