@@ -24,8 +24,8 @@ def area_cv(dome):
 
 @pytest.mark.parametrize('base,f', BASES)
 def test_relax_keeps_grid_and_evens_cells(base, f):
-    plain = GeodesicDome(f, base=base)
-    dome = GeodesicDome(f, base=base, relax=True)
+    plain = GeodesicDome(f, base=base, relax=False)
+    dome = GeodesicDome(f, base=base)
     assert dome.relaxed and not plain.relaxed
     assert 0 < dome.relax_steps < CONVERGED['iters']               # converged before the step limit
     # same grid: positions, faces, seam classes and neighbours
@@ -60,15 +60,16 @@ def test_relaxed_mesh_is_delaunay(base, f):
 
 def test_icosahedral_cell_areas_match_spiral_comparison():
     """docs/lattice_comparison.md in the spiral repository: cell-area CV 0.132 -> 0.039 at N = 2 562."""
-    plain, dome = GeodesicDome(16), GeodesicDome(16, relax=True)
+    plain, dome = GeodesicDome(16, relax=False), GeodesicDome(16)
     assert dome.n_points == 2562
     assert area_cv(plain) == pytest.approx(0.132, abs=5e-4)
     assert area_cv(dome) == pytest.approx(0.039, abs=5e-4)
 
 
 def test_relax_method_settings_and_in_place_update():
-    dome = GeodesicDome(4)
-    moved = np.linalg.norm(GeodesicDome(4, relax=True).get_all_xyz() - dome.get_all_xyz(), axis=1)
+    dome = GeodesicDome(4, relax=False)
+    assert repr(dome) == 'GeodesicDome(frequency=4, relax=False)'
+    moved = np.linalg.norm(GeodesicDome(4).get_all_xyz() - dome.get_all_xyz(), axis=1)
     v = dome.get_all_vertices()[int(moved.argmax())]           # the point that moves most
     before = v.coord.copy()
     ll = v.latlon_coord.copy()
@@ -77,30 +78,41 @@ def test_relax_method_settings_and_in_place_update():
     assert np.abs(v.coord - before).max() > 1e-3                # vertex objects see the new coordinates
     assert np.array_equal(v.coord, dome.get_all_xyz()[v.id])
     assert np.abs(v.latlon_coord - ll).max() > 1e-4             # cached lat/lon recomputed
-    assert repr(dome) == 'GeodesicDome(frequency=4, relaxed=True)'
+    assert repr(dome) == 'GeodesicDome(frequency=4)'
 
 
 def test_relax_option_dict_and_errors():
     a = GeodesicDome(4, relax={'iters': 5, 'omega': 1.0})
     assert a.relax_steps == 5
-    b = GeodesicDome(4)
+    b = GeodesicDome(4, relax=False)
     b.relax(iters=5, omega=1.0)
     assert np.array_equal(a.get_all_xyz(), b.get_all_xyz())
     with pytest.raises(TypeError):
         GeodesicDome(4, relax='yes')
     with pytest.raises(ValueError):
-        GeodesicDome(4).relax(omega=2.0)
+        GeodesicDome(4, relax=False).relax(omega=2.0)
 
 
-def test_split_resets_relaxed():
-    dome = GeodesicDome(2, relax=True)
-    dome.split(2)
-    assert not dome.relaxed and dome.relax_steps == 0
+def test_relaxed_by_default():
+    dome = GeodesicDome(4)
+    assert dome.relaxed and dome.relax_steps > 0
+    assert not GeodesicDome(4, relax=False).relaxed
+
+
+@pytest.mark.parametrize('base', ['icosahedron', 'tetrahedron', 'dodecahedron'])
+def test_split_relaxes_again(base):
+    dome = GeodesicDome(2, base=base)
+    dome.split(3)
+    assert dome.relaxed and dome.frequency == 6
+    assert np.abs(dome.get_all_xyz() - GeodesicDome(6, base=base).get_all_xyz()).max() < 1e-5
+    plain = GeodesicDome(2, base=base, relax=False)
+    plain.split(3)
+    assert not plain.relaxed
 
 
 def test_netdome_arc_length_follows_relaxation():
-    plain = GeodesicDome(4, base='dodecahedron')
-    dome = GeodesicDome(4, base='dodecahedron', relax=True)
+    plain = GeodesicDome(4, base='dodecahedron', relax=False)
+    dome = GeodesicDome(4, base='dodecahedron')
     assert dome.arcLength != plain.arcLength
     assert dome.arcLength == pytest.approx(plain.arcLength, rel=0.05)
 
@@ -133,7 +145,7 @@ def test_numpy_backend_matches_reference_step():
     """The batched step equals the per-corner loop of the spiral repository's relax.py."""
     from mt.geodesicdome.relax import _unit, triangle_areas
 
-    x, tri = unique_points(GeodesicDome(4))
+    x, tri = unique_points(GeodesicDome(4, relax=False))
     f = len(tri)
     idx = np.arange(f)
     num, den = np.zeros_like(x), np.zeros(len(x))
@@ -153,7 +165,7 @@ def test_numpy_backend_matches_reference_step():
 
 def test_float32_device_finishes_in_float64():
     """On a float32 device the run stops at its precision floor and the CPU finishes to tol."""
-    x, tri = unique_points(GeodesicDome(8))
+    x, tri = unique_points(GeodesicDome(8, relax=False))
     ref = lloyd(x, tri, backend='numpy', **CONVERGED)
     got, steps = lloyd(x, tri, backend=_Float32Device.make(), return_steps=True, **CONVERGED)
     assert got.dtype == np.float64
@@ -165,13 +177,13 @@ def test_float32_device_finishes_in_float64():
 
 def test_dome_relax_backend_argument():
     a = GeodesicDome(8, relax={'backend': 'cpu'})
-    b = GeodesicDome(8).relax(backend=_Float32Device.make())
+    b = GeodesicDome(8, relax=False).relax(backend=_Float32Device.make())
     assert np.abs(a.get_all_xyz() - b.get_all_xyz()).max() < 1e-5
 
 
 def test_torch_backend_if_installed():
     torch = pytest.importorskip('torch')
-    x, tri = unique_points(GeodesicDome(8))
+    x, tri = unique_points(GeodesicDome(8, relax=False))
     ref = lloyd(x, tri, backend='numpy', **CONVERGED)
     got = lloyd(x, tri, backend='torch:cpu', **CONVERGED)
     assert np.abs(got - ref).max() < 1e-9

@@ -49,6 +49,7 @@ def test_dispatch_and_repr():
     assert type(GeodesicDome(frequency=2, base='dodeca')) is DodecahedronDome
     assert repr(GeodesicDome(4)) == 'GeodesicDome(frequency=4)'
     assert repr(GeodesicDome(4, 'tetra')) == "GeodesicDome(frequency=4, base='tetrahedron')"
+    assert repr(GeodesicDome(4, relax=False)) == 'GeodesicDome(frequency=4, relax=False)'
     assert TetrahedronDome(3).frequency == 3
     with pytest.raises(ValueError):
         GeodesicDome(2, base='cube')
@@ -142,9 +143,9 @@ def test_interior_rings():
 
 @pytest.mark.parametrize('base', ['tetrahedron', 'dodecahedron'])
 def test_split_is_cumulative(base):
-    dome = GeodesicDome(2, base=base)
+    dome = GeodesicDome(2, base=base, relax=False)
     dome.split(3)
-    ref = GeodesicDome(6, base=base)
+    ref = GeodesicDome(6, base=base, relax=False)
     assert dome.frequency == 6
     np.testing.assert_allclose(dome.get_all_xyz(), ref.get_all_xyz())
 

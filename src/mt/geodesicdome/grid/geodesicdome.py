@@ -143,9 +143,11 @@ class GeodesicDome(IGeodesicDome, Manifold):
         dome.within_hops(i, hops)          positions within `hops` grid steps (one per sphere point)
         dome.within_arc(i, angle)          positions within a great-circle angle (radians)
 
-    Lloyd relaxation (moves the points, keeps the grid; see :mod:`mt.geodesicdome.relax`):
+    Lloyd relaxation (moves the points, keeps the grid; see :mod:`mt.geodesicdome.relax`) is on
+    by default:
 
-        GeodesicDome(16, relax=True)       built and relaxed to convergence
+        GeodesicDome(16)                   built and relaxed to convergence (relax=True)
+        GeodesicDome(16, relax=False)      the plain subdivided dome, without relaxation
         GeodesicDome(16, relax={'iters': 100, 'omega': 1.0})   with other settings
         dome.relax()                       relax an existing dome in place
     """
@@ -509,8 +511,8 @@ class GeodesicDome(IGeodesicDome, Manifold):
         Apple GPU (float32 only) the last few steps are made on the CPU in float64, so the
         result is as precise as a CPU run.
 
-        A later :meth:`split` subdivides the relaxed coordinates and returns an unrelaxed dome
-        (``relaxed`` is reset); call ``relax()`` again after it.
+        A later :meth:`split` subdivides the relaxed coordinates and relaxes the finer dome again
+        with the same settings.
 
         :param iters: maximum number of steps
         :param omega: over-relaxation factor (1 = plain Lloyd; keep it below 2)
@@ -524,6 +526,7 @@ class GeodesicDome(IGeodesicDome, Manifold):
         for k, v in (('iters', iters), ('omega', omega), ('tol', tol)):
             if v is not None:
                 kw[k] = v
+        self._relax_kw = {'iters': iters, 'omega': omega, 'tol': tol, 'backend': backend}
         if kw['iters'] < 0:
             raise ValueError('iters must be non-negative')
         if not 0.0 < kw['omega'] < 2.0:
@@ -557,7 +560,11 @@ class GeodesicDome(IGeodesicDome, Manifold):
             raise TypeError('relax must be True, False or a dict of relax() arguments (iters, omega, tol, backend)')
 
     def _relaxed_repr(self) -> str:
-        return ', relaxed=True' if self.relaxed else ''
+        return '' if self.relaxed else ', relax=False'
+
+    def _relax_settings(self):
+        """Settings to re-apply after a split (None if the dome is not relaxed)."""
+        return getattr(self, '_relax_kw', {}) if self.relaxed else None
 
 
 class IcosahedronDome(GeodesicDome):
@@ -581,7 +588,7 @@ class IcosahedronDome(GeodesicDome):
 
     base = 'icosahedron'
 
-    def __init__(self, frequency=1, base=None, relax=False):
+    def __init__(self, frequency=1, base=None, relax=True):
         super().__init__()
         self._check_base(base)
         frequency = self._check_factor(frequency)
@@ -728,6 +735,7 @@ class IcosahedronDome(GeodesicDome):
         Subdivides every edge of the current dome into `frequency` segments.
         Calls are cumulative: split(2) followed by split(3) gives frequency 6.
         The vertices are rebuilt, so vertex objects from before the split are not reused.
+        A relaxed dome is relaxed again after the split, with the settings it was relaxed with.
 
         :param frequency: subdivision factor (an int >= 1)
         :return: None
@@ -735,6 +743,7 @@ class IcosahedronDome(GeodesicDome):
         f = self._check_factor(frequency)
         if f == 1:
             return
+        again = self._relax_settings()
         old_index, old_coords = self._index, self._coords
         valid = old_index >= 0
         X, Y = self.x_max * f, self.y_max * f
@@ -799,6 +808,8 @@ class IcosahedronDome(GeodesicDome):
 
         self._find_same_vertices(same, column_range)
         self._finish(np.stack([nx, ny], axis=1).astype(np.int32), coords, same)
+        if again is not None:
+            self.relax(**again)
 
 
 class NetDome(GeodesicDome):
@@ -818,7 +829,7 @@ class NetDome(GeodesicDome):
 
     base: str = ''
 
-    def __init__(self, frequency=1, base=None, relax=False):
+    def __init__(self, frequency=1, base=None, relax=True):
         super().__init__()
         self._check_base(base)
         frequency = self._check_factor(frequency)
@@ -839,13 +850,17 @@ class NetDome(GeodesicDome):
         Subdivides every edge of the current dome into `frequency` segments.
         Calls are cumulative: split(2) followed by split(3) gives frequency 6.
         The vertices are rebuilt, so vertex objects from before the split are not reused.
+        A relaxed dome is relaxed again after the split, with the settings it was relaxed with.
 
         :param frequency: subdivision factor (an int >= 1)
         :return: None
         """
         f = self._check_factor(frequency)
         if f > 1:
+            again = self._relax_settings()
             self._build(self.frequency * f)
+            if again is not None:
+                self.relax(**again)
 
     @staticmethod
     def _template(f: int):

@@ -20,7 +20,7 @@ rng = np.random.default_rng(1)
 n = 0
 for base in ('icosahedron', 'tetrahedron', 'dodecahedron'):
     for seq in ((1,), (2,), (3,), (5,), (8,), (2, 3), (13,)):
-        d = GeodesicDome(seq[0], base=base)
+        d = GeodesicDome(seq[0], base=base, relax=False)   # topology only
         for s in seq[1:]:
             d.split(s)
         cls = d.point_index

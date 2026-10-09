@@ -100,4 +100,4 @@ def test_angular_distance_and_nearest_vertex(b):
 def test_dome_arrays():
     mesh = compute.DomeArrays.from_dome(GeodesicDome(4))
     assert mesh.n == 162 and len(mesh.faces) == 320 and len(mesh.edges) == 480
-    assert 0 < mesh.ring_length < 0.3
+    assert 0 < mesh.ring_length < 0.31

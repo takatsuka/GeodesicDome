@@ -11,12 +11,17 @@ and the project uses [Semantic Versioning](https://semver.org/).
   centroid of its cell with the dome's triangles held fixed, so the grid, neighbours, faces and seam copies are
   unchanged and only the coordinates move. Converged by default (`omega = 1.8`, `tol = 1e-7` rad); at N = 2 562
   the cell-area CV drops from 0.132 to 0.039. Works on all three base solids; `relax=` also takes a dict of
-  `relax()` arguments. New attributes `dome.relaxed` and `dome.relax_steps`; `lloyd`, `cell_areas`,
-  `triangle_areas` and `outward` for any spherical triangle mesh. Tests in `tests/test_relax.py`.
+  `relax()` arguments, and `relax=False` turns it off. New attributes `dome.relaxed` and `dome.relax_steps`;
+  `lloyd`, `cell_areas`, `triangle_areas` and `outward` for any spherical triangle mesh. Tests in `tests/test_relax.py`.
   - Runs on the GPU when available (`relax(backend=...)`, default automatic): CUDA in float64; on the Apple GPU
     (float32 only) the last steps are finished on the CPU in float64. Domes under 5 000 points stay on the CPU.
 
 ### Changed
+- **Domes are Lloyd-relaxed by default** (`relax=True`): `GeodesicDome(f)` now has evened-out cell areas, so its
+  coordinates differ from earlier versions (the grid, neighbours, faces and seams do not). Pass `relax=False`
+  for the previous, plain subdivided coordinates. Relaxation adds build time (CPU: about 0.3 s at f = 16, 4.5 s
+  at f = 32, 70 s at f = 64). `split()` on a relaxed dome relaxes the finer dome again. `repr` shows
+  `relax=False` for unrelaxed domes. The benchmarks build unrelaxed domes, so their timings stay comparable.
 - **Much faster, much smaller `GeodesicDome`.** Storage is now array-first: coordinates, grid positions, the
   index grid, faces, the six grid neighbours and the seam classes are NumPy arrays built with vectorised code,
   and the `GeodesicVertex` objects are created only when something asks for them (`vertices`,
@@ -25,8 +30,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   vertex objects), live memory 7.4 MiB → 1.2 MiB (3.3 MiB with all vertex objects); f = 64: 744 ms → 9 ms.
   Tetrahedral (f = 64) and dodecahedral (f = 32) domes: 237 ms → 8 ms and 1036 ms → 23 ms.
   Details, benchmarks and the equivalence checks: [docs/performance.md](docs/performance.md) and `benchmarks/`.
-- Coordinates, storage order, faces, seam copies (`same_vertices`), neighbour order and rings are
-  bit-for-bit the same as before, including cumulative `split()`.
+- With `relax=False`, coordinates, storage order, faces, seam copies (`same_vertices`), neighbour order and
+  rings are bit-for-bit the same as before, including cumulative `split()`.
 - `GeodesicVertex` (and `Vertex`) use `__slots__` (other attributes still work); `vertex.coord` is a view of the
   dome's coordinate array, `vertex.latlon_coord` is computed on first use, `vertex.id` is set on creation and
   `vertex.manifold` is the dome. `IcosahedronDome.split()` now rebuilds the vertices (as `NetDome.split()`

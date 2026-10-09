@@ -181,17 +181,18 @@ It can also colour every cell by its spherical area; compare the tetrahedron wit
 ### 3.6 Lloyd relaxation: even cell areas on the same grid
 
 Subdividing a base face evenly along its flat chords and pushing the points out to the sphere stretches the
-cells near the face centres: on the icosahedral dome the largest cell is about 2.2 times the smallest. `relax`
-moves every point to the centroid of its own cell (Lloyd relaxation), repeatedly, **with the dome's triangles held
+cells near the face centres: on the icosahedral dome the largest cell is about 2.2 times the smallest. **By
+default every dome is therefore relaxed:** Lloyd relaxation moves every point to the centroid of its own cell (Lloyd relaxation), repeatedly, **with the dome's triangles held
 fixed**. Every grid position, neighbour, face and seam copy stays as it was, so all index and neighbour queries
 are unchanged; only the coordinates move.
 
 ```python
-dome = GeodesicDome(16, relax=True)                     # built, then relaxed to convergence
+dome = GeodesicDome(16)                                 # built, then relaxed to convergence (relax=True)
 dome.relaxed, dome.relax_steps                          # (True, 131)
 
+plain = GeodesicDome(16, relax=False)                   # the plain subdivided dome, no relaxation
 dome = GeodesicDome(16, base='dodecahedron', relax={'iters': 100, 'omega': 1.0})   # plain Lloyd, 100 steps
-GeodesicDome(16).relax()                                # or relax an existing dome in place
+plain.relax()                                           # relax an existing dome in place
 ```
 
 | N = 2 562 (icosahedron, f = 16) | plain | relaxed |
@@ -212,8 +213,11 @@ GeodesicDome(16).relax()                                # or relax an existing d
 * Holding the triangles fixed is sound as long as they stay the Delaunay triangulation of the moved points; this
   has been checked for all three base solids (`tests/test_relax.py`), so the result is a spherical centroidal
   Voronoi tessellation with the dome's own graph.
-* `split()` after `relax()` subdivides the relaxed coordinates and gives an unrelaxed dome (`relaxed` is reset);
-  relax again after splitting.
+* **Build time.** Relaxation dominates the build: on one CPU core about 0.3 s at N = 2 562 (f = 16), 4.5 s at
+  10 242 (f = 32) and 70 s at 40 962 (f = 64), against milliseconds for `relax=False`. Use a GPU or
+  `relax=False` for large domes when the plain lattice will do.
+* `split()` on a relaxed dome subdivides the relaxed coordinates and relaxes the finer dome again with the same
+  settings, so `GeodesicDome(2).split(3)` matches `GeodesicDome(6)` (to 1e-5); an unrelaxed dome stays unrelaxed.
 * `mt.geodesicdome.relax.lloyd(points, triangles, ...)` relaxes any spherical triangle mesh; `cell_areas` gives
   the dual cell areas. The implementation is the one used in the `spiral` repository's lattice comparison.
 
@@ -221,7 +225,7 @@ GeodesicDome(16).relax()                                # or relax an existing d
 
 ## 4. GeodesicDome
 
-`GeodesicDome(frequency=1, base='icosahedron', relax=False)`, in `mt.geodesicdome.grid.geodesicdome`; `base` can also be
+`GeodesicDome(frequency=1, base='icosahedron', relax=True)`, in `mt.geodesicdome.grid.geodesicdome`; `base` can also be
 `'tetrahedron'` or `'dodecahedron'` ([3.5](#35-base-polyhedra-tetrahedron-icosahedron-dodecahedron)).
 
 | Member | Description |

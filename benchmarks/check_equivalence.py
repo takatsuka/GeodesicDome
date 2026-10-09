@@ -24,6 +24,14 @@ import numpy as np
 REPO_SRC = Path(__file__).resolve().parents[1] / 'src'
 
 
+def plain(cls, *args, **kwargs):
+    """The unrelaxed dome (relax=False; older versions without the option are always unrelaxed)."""
+    try:
+        return cls(*args, relax=False, **kwargs)
+    except TypeError:
+        return cls(*args, **kwargs)
+
+
 def dump(path, src):
     sys.path.insert(0, str(src or REPO_SRC))
     from mt.geodesicdome.grid.geodesicdome import GeodesicDome, NetDome
@@ -37,7 +45,8 @@ def dump(path, src):
         cases += [(base, (2, 3)), (base, (3, 2, 2))]
     out = {}
     for base, seq in cases:
-        d = GenericIcosahedron(seq[0]) if base == 'generic-icosahedron' else GeodesicDome(seq[0], base=base)
+        cls = GenericIcosahedron if base == 'generic-icosahedron' else GeodesicDome
+        d = plain(cls, seq[0]) if cls is GenericIcosahedron else plain(cls, seq[0], base=base)
         for s in seq[1:]:
             d.split(s)
         tri = d.get_all_triangles()

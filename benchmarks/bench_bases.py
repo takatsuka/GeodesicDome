@@ -28,12 +28,20 @@ impl = args.impl
 sys.path.insert(0, str(args.src or REPO_SRC))
 
 
+def plain(cls, *args, **kwargs):
+    """The unrelaxed dome (relax=False; older versions without the option are always unrelaxed)."""
+    try:
+        return cls(*args, relax=False, **kwargs)
+    except TypeError:
+        return cls(*args, **kwargs)
+
+
 def make(f, base):
     if impl == 'core':
         from geodesic_grid_core import IndexedGridCore
         return IndexedGridCore(f, base=base, backend='numpy')
     from mt.geodesicdome.grid.geodesicdome import GeodesicDome
-    d = GeodesicDome(f, base=base)
+    d = plain(GeodesicDome, f, base=base)               # build time without relaxation
     if impl == 'newobj':
         d.get_all_vertices()
     return d
