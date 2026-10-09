@@ -8,7 +8,7 @@ authors:
   - family-names: Takatsuka
     given-names: Masahiro
     email: masa@takatsuka.org
-version: 1.5.0
+version: 1.5.1
 date-released: "2026-10-02"
 license: AGPL-3.0-or-later
 repository-code: "https://github.com/takatsuka/GeodesicDome"

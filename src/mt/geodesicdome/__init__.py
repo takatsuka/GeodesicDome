@@ -24,4 +24,4 @@ Note: `mt` itself is a namespace package (no __init__.py), so other
 mt.* distributions can be installed alongside this one.
 """
 
-__version__ = '1.5.0'
+__version__ = '1.5.1'
