@@ -52,6 +52,13 @@ def _normalise_rows(p: np.ndarray) -> np.ndarray:
     return p / np.sqrt(sq)[..., None]
 
 
+def _mean_edge_angle(coords: np.ndarray, faces: np.ndarray) -> float:
+    """Mean great-circle length (radians) of the edges of the faces, each face edge counted once."""
+    ends = coords[faces[:, [[0, 1], [1, 2], [2, 0]]]].reshape(-1, 2, 3)
+    cosine = np.clip(np.einsum('ij,ij->i', ends[:, 0], ends[:, 1]), -1.0, 1.0)
+    return float(np.arccos(cosine).mean())
+
+
 def _partition(a: np.ndarray, b: np.ndarray, n: int, steps: np.ndarray) -> np.ndarray:
     """Points a + j (b - a) / n (j in `steps`) pushed onto the sphere: (E, 3) x (E, 3) -> (E, J, 3)."""
     d = (b - a) / n
@@ -135,6 +142,12 @@ class GeodesicDome(IGeodesicDome, Manifold):
         dome.neighbour_ids(i)              storage indices of the neighbours of position i
         dome.within_hops(i, hops)          positions within `hops` grid steps (one per sphere point)
         dome.within_arc(i, angle)          positions within a great-circle angle (radians)
+
+    Lloyd relaxation (moves the points, keeps the grid; see :mod:`mt.geodesicdome.relax`):
+
+        GeodesicDome(16, relax=True)       built and relaxed to convergence
+        GeodesicDome(16, relax={'iters': 100, 'omega': 1.0})   with other settings
+        dome.relax()                       relax an existing dome in place
     """
 
     base: str = 'icosahedron'
@@ -177,6 +190,8 @@ class GeodesicDome(IGeodesicDome, Manifold):
         self._ring = None
         self._bfs = None
         self.triangles = []
+        self.relaxed = False             # coordinates are fresh subdivisions until relax() moves them
+        self.relax_steps = 0
 
     @staticmethod
     def _neighbour_candidates(xy: np.ndarray, index: np.ndarray) -> np.ndarray:
@@ -473,6 +488,77 @@ class GeodesicDome(IGeodesicDome, Manifold):
         """(N,) the distinct sphere point stored at each position; seam copies share a value."""
         return self._cls.copy()
 
+    # ------------------------------------------------------------------ Lloyd relaxation
+    def relax(self, iters: int | None = None, omega: float | None = None, tol: float | None = None,
+              backend=None) -> GeodesicDome:
+        """
+        Moves every point towards the centroid of its cell (Lloyd relaxation on the dome's own
+        triangles, see :mod:`mt.geodesicdome.relax`), evening out the cell areas.  The grid is
+        untouched: every (x, y) position, neighbour, face and seam copy stays as it was, so all
+        index and neighbour queries give the same results; only the coordinates change.
+        Seam copies keep identical coordinates.  Coordinates are changed in place, so existing
+        vertex objects see the new ones.
+
+        The defaults (``mt.geodesicdome.relax.CONVERGED``: up to 20 000 steps, ``omega = 1.8``,
+        stop when no point moves 1e-7 rad) run to convergence.  ``iters=100, omega=1.0`` is plain
+        Lloyd with a fixed number of steps.
+
+        The steps run on the compute backend (:mod:`mt.geodesicdome.backend`): a CUDA or Apple
+        GPU when one is available and the dome has at least
+        ``mt.geodesicdome.relax.GPU_MIN_POINTS`` points, otherwise NumPy on the CPU.  On the
+        Apple GPU (float32 only) the last few steps are made on the CPU in float64, so the
+        result is as precise as a CPU run.
+
+        A later :meth:`split` subdivides the relaxed coordinates and returns an unrelaxed dome
+        (``relaxed`` is reset); call ``relax()`` again after it.
+
+        :param iters: maximum number of steps
+        :param omega: over-relaxation factor (1 = plain Lloyd; keep it below 2)
+        :param tol: stop once no point moves more than `tol` radians in a step
+        :param backend: None (automatic, see above), or 'cpu', 'cuda', 'mps', 'torch', 'cupy' or a Backend
+        :return: the dome itself; ``dome.relaxed`` is True and ``dome.relax_steps`` the number of steps taken
+        """
+        from mt.geodesicdome import relax as lloyd_relax
+
+        kw = dict(lloyd_relax.CONVERGED)
+        for k, v in (('iters', iters), ('omega', omega), ('tol', tol)):
+            if v is not None:
+                kw[k] = v
+        if kw['iters'] < 0:
+            raise ValueError('iters must be non-negative')
+        if not 0.0 < kw['omega'] < 2.0:
+            raise ValueError('omega must be between 0 and 2')
+        cls = self._cls
+        x = np.empty((self._n_points, 3), dtype=np.float64)
+        x[cls] = self._coords
+        tri = lloyd_relax.outward(x, cls[self._faces])
+        y, steps = lloyd_relax.lloyd(x, tri, return_steps=True, backend=backend, **kw)
+        self._coords[...] = y[cls]
+        if self._flat is not None:
+            for v in self._flat:
+                v._latlon = None
+        self.relaxed = True
+        self.relax_steps = self.relax_steps + steps
+        self._after_relax()
+        return self
+
+    def _after_relax(self) -> None:
+        pass
+
+    def _apply_relax_option(self, relax) -> None:
+        """The constructor's ``relax`` option: False, True (converged defaults) or a dict of relax() arguments."""
+        if relax is None or relax is False:
+            return
+        if relax is True:
+            self.relax()
+        elif isinstance(relax, dict):
+            self.relax(**relax)
+        else:
+            raise TypeError('relax must be True, False or a dict of relax() arguments (iters, omega, tol, backend)')
+
+    def _relaxed_repr(self) -> str:
+        return ', relaxed=True' if self.relaxed else ''
+
 
 class IcosahedronDome(GeodesicDome):
     """
@@ -495,7 +581,7 @@ class IcosahedronDome(GeodesicDome):
 
     base = 'icosahedron'
 
-    def __init__(self, frequency=1, base=None):
+    def __init__(self, frequency=1, base=None, relax=False):
         super().__init__()
         self._check_base(base)
         frequency = self._check_factor(frequency)
@@ -525,9 +611,10 @@ class IcosahedronDome(GeodesicDome):
         self._finish(xy, coords, same)
         if frequency > 1:
             self.split(frequency)
+        self._apply_relax_option(relax)
 
     def __repr__(self) -> str:
-        return f'GeodesicDome(frequency={self.frequency})'
+        return f'GeodesicDome(frequency={self.frequency}{self._relaxed_repr()})'
 
     # ------------------------------------------------------------------ construction
     def _finish(self, xy: np.ndarray, coords: np.ndarray, same_xy: dict) -> None:
@@ -731,16 +818,20 @@ class NetDome(GeodesicDome):
 
     base: str = ''
 
-    def __init__(self, frequency=1, base=None):
+    def __init__(self, frequency=1, base=None, relax=False):
         super().__init__()
         self._check_base(base)
         frequency = self._check_factor(frequency)
         self.net: BaseNet = base_net(self.base)
         self.frequency = 1
         self._build(frequency)
+        self._apply_relax_option(relax)
 
     def __repr__(self) -> str:
-        return f'GeodesicDome(frequency={self.frequency}, base={self.base!r})'
+        return f'GeodesicDome(frequency={self.frequency}, base={self.base!r}{self._relaxed_repr()})'
+
+    def _after_relax(self) -> None:
+        self.arcLength = _mean_edge_angle(self._coords, self._faces)
 
     # ------------------------------------------------------------------ construction
     def split(self, frequency):
@@ -847,9 +938,7 @@ class NetDome(GeodesicDome):
         cand[(mask[:, None] >> np.arange(6)[None, :]) & 1 == 0] = -1
         self._mask = mask
 
-        ends = coords[faces[:, [[0, 1], [1, 2], [2, 0]]]].reshape(-1, 2, 3)
-        cosine = np.clip(np.einsum('ij,ij->i', ends[:, 0], ends[:, 1]), -1.0, 1.0)
-        self.arcLength = float(np.arccos(cosine).mean())   # mean great-circle edge length (radians)
+        self.arcLength = _mean_edge_angle(coords, faces)   # mean great-circle edge length (radians)
         self._set_arrays(xy, index, coords, faces, cand, same, cls.astype(np.int32))
 
     def _after_materialise(self, flat) -> None:

@@ -9,6 +9,7 @@ Subpackages
     mt.geodesicdome.interactive   rotatable interactive map viewer (needs matplotlib)
     mt.geodesicdome.backend       compute backends: GPU (CUDA, Apple MPS) when available, else all CPU cores
     mt.geodesicdome.compute       array kernels on domes (great-circle distances, nearest vertex) on that backend
+    mt.geodesicdome.relax         Lloyd relaxation of a dome's points with its grid kept (GeodesicDome.relax)
 
 The indexed geodesic data structure is described in
 Y. Wu and M. Takatsuka, "Spherical self-organizing map using efficient indexed

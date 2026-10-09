@@ -5,6 +5,17 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Lloyd relaxation** (`mt.geodesicdome.relax`, from the `spiral` repository's lattice comparison).
+  `GeodesicDome(frequency, base=..., relax=True)` or `dome.relax(iters, omega, tol)` moves every point to the
+  centroid of its cell with the dome's triangles held fixed, so the grid, neighbours, faces and seam copies are
+  unchanged and only the coordinates move. Converged by default (`omega = 1.8`, `tol = 1e-7` rad); at N = 2 562
+  the cell-area CV drops from 0.132 to 0.039. Works on all three base solids; `relax=` also takes a dict of
+  `relax()` arguments. New attributes `dome.relaxed` and `dome.relax_steps`; `lloyd`, `cell_areas`,
+  `triangle_areas` and `outward` for any spherical triangle mesh. Tests in `tests/test_relax.py`.
+  - Runs on the GPU when available (`relax(backend=...)`, default automatic): CUDA in float64; on the Apple GPU
+    (float32 only) the last steps are finished on the CPU in float64. Domes under 5 000 points stay on the CPU.
+
 ### Changed
 - **Much faster, much smaller `GeodesicDome`.** Storage is now array-first: coordinates, grid positions, the
   index grid, faces, the six grid neighbours and the seam classes are NumPy arrays built with vectorised code,

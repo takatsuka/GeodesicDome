@@ -261,17 +261,57 @@ It can also colour every cell by its spherical area; compare the tetrahedron wit
 
 ![the base-polyhedron explorer](https://raw.githubusercontent.com/takatsuka/GeodesicDome/main/examples/output/11_explorer.png)
 
+### 3.6 Lloyd relaxation: even cell areas on the same grid
+
+Subdividing a base face evenly along its flat chords and pushing the points out to the sphere stretches the
+cells near the face centres: on the icosahedral dome the largest cell is about 2.2 times the smallest. `relax`
+moves every point to the centroid of its own cell (Lloyd relaxation), repeatedly, **with the dome's triangles held
+fixed**. Every grid position, neighbour, face and seam copy stays as it was, so all index and neighbour queries
+are unchanged; only the coordinates move.
+
+```python
+dome = GeodesicDome(16, relax=True)                     # built, then relaxed to convergence
+dome.relaxed, dome.relax_steps                          # (True, 131)
+
+dome = GeodesicDome(16, base='dodecahedron', relax={'iters': 100, 'omega': 1.0})   # plain Lloyd, 100 steps
+GeodesicDome(16).relax()                                # or relax an existing dome in place
+```
+
+| N = 2 562 (icosahedron, f = 16) | plain | relaxed |
+|---|---|---|
+| cell-area CV | 0.132 | 0.039 |
+| largest ÷ smallest cell | 2.22 | 1.53 |
+
+* Defaults (`mt.geodesicdome.relax.CONVERGED`): over-relaxation `omega = 1.8`, stop once no point moves more than
+  1e-7 rad in a step, at most 20 000 steps. Over-relaxation changes the speed, not the result: a converged point
+  is its own centroid.
+* **GPU.** Each step is one batch of array operations on the compute backend
+  ([`mt.geodesicdome.backend`](#compute-backends-gpu-or-all-cpu-cores--mtgeodesicdomebackend-mtgeodesicdomecompute)):
+  with `torch` (or `cupy`) installed it runs on a CUDA GPU in float64, or on the Apple GPU (MPS). The Apple GPU
+  has only float32, which cannot resolve moves much below a few 1e-6 rad, so the last few dozen steps are made
+  on the CPU in float64 and the result is as precise as a CPU run. Domes under 5 000 points
+  (`relax.GPU_MIN_POINTS`) stay on the CPU, where they take under a second. Choose explicitly with
+  `relax(backend='cpu' | 'cuda' | 'mps' | ...)` or `MTGEODESIC_BACKEND`.
+* Holding the triangles fixed is sound as long as they stay the Delaunay triangulation of the moved points; this
+  has been checked for all three base solids (`tests/test_relax.py`), so the result is a spherical centroidal
+  Voronoi tessellation with the dome's own graph.
+* `split()` after `relax()` subdivides the relaxed coordinates and gives an unrelaxed dome (`relaxed` is reset);
+  relax again after splitting.
+* `mt.geodesicdome.relax.lloyd(points, triangles, ...)` relaxes any spherical triangle mesh; `cell_areas` gives
+  the dual cell areas. The implementation is the one used in the `spiral` repository's lattice comparison.
+
 ---
 
 ## 4. API reference
 
-### `GeodesicDome(frequency=1, base='icosahedron')` — `mt.geodesicdome.grid.geodesicdome`
+### `GeodesicDome(frequency=1, base='icosahedron', relax=False)` — `mt.geodesicdome.grid.geodesicdome`
 
 | Member | Description |
 |---|---|
 | `base` | `'icosahedron'`, `'tetrahedron'` or `'dodecahedron'` |
 | `frequency`, `x_max`, `y_max` | current frequency and the extent of the index grid |
 | `split(n)` | subdivide every edge into `n` more segments (frequency ×= n) |
+| `relax(iters, omega, tol)` | Lloyd-relax the points in place, keeping the grid ([3.6](#36-lloyd-relaxation-even-cell-areas-on-the-same-grid)); `relaxed`, `relax_steps` |
 | `get_all_vertices()` | list of `GeodesicVertex`, including seam copies |
 | `get_vertex_at(x, y)` | vertex at a grid position, or `None` |
 | `get_faces()` | flat list of vertices, 3 per triangle (also assigns `vertex.id`) |
